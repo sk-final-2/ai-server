@@ -1,0 +1,28 @@
+[project]
+name = "emotion"
+version = "0.1.0"
+description = "emotion server"
+authors = [
+    {name = "TP9NS",email = "pshccxx@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.9,<4.0"
+dependencies = [
+    "fastapi (>=0.116.1,<0.117.0)",
+    "uvicorn (>=0.35.0,<0.36.0)",
+    "tf-keras (>=2.19.0,<3.0.0)",
+    "deepface (==0.0.89)",
+    "python-multipart (>=0.0.20,<0.0.21)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.30.0"
+
