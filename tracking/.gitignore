@@ -1,0 +1,22 @@
+# 환경 설정
+.env
+
+# 모델 및 로그
+model_output/
+checkpoints/
+*.log
+
+# Python 캐시
+__pycache__/
+*.py[cod]
+
+# IDE 설정
+.vscode/
+
+# 가상환경 (로컬 테스트용)
+.venv/
+env/
+venv/
+
+# 기타
+*.sqlite3

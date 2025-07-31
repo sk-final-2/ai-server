@@ -1,0 +1,36 @@
+# OS 별 무시 파일
+.DS_Store
+Thumbs.db
+
+# Python 관련
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# 가상환경
+.venv/
+env/
+venv/
+
+# Poetry
+poetry.lock
+*.egg-info/
+
+# IDE 설정
+.idea/
+.vscode/
+
+# 로그
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 기타 빌드 결과물
+dist/
+build/
+
+# dotenv
+.env
