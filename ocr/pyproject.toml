@@ -1,0 +1,21 @@
+[project]
+name = "ocr"
+version = "0.1.0"
+description = "ocr server"
+authors = [
+    {name = "nueij0429",email = "ssjjjieun0429@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi (>=0.116.1,<0.117.0)",
+    "uvicorn (>=0.35.0,<0.36.0)",
+    "pypdf2 (>=3.0.1,<4.0.0)",
+    "python-docx (>=1.2.0,<2.0.0)",
+    "python-multipart (>=0.0.20,<0.0.21)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
