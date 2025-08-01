@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  emotion-ai:
+    image: tp9ns/recruitai:emotion-ai
+    container_name: emotion-ai
+    ports:
+      - "8000:8000"
+    networks:
+      - backend-net   # backend와 통일
+
+  ocr-server:
+    image: tp9ns/recruitai:ocr-server
+    container_name: ocr-server
+    ports:
+      - "8002:8002"
+    networks:
+      - backend-net
+
+networks:
+  backend-net:
+    external: true
+    name: recruitai_backend-net  # 이미 존재하는 네트워크에 붙는다는 의미

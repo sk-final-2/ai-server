@@ -14,8 +14,7 @@ __pycache__/
 env/
 venv/
 
-# Poetry
-poetry.lock
+
 *.egg-info/
 
 # IDE 설정
