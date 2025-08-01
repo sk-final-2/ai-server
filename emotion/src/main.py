@@ -13,7 +13,7 @@ app = FastAPI()
 @app.post("/analyze")
 async def analyze_emotion(
     file: UploadFile = File(...),
-    interviewID: int = Form(...),
+    interviewId: int = Form(...),
     seq: int = Form(...)
 ):
     # 1. 파일 저장
@@ -72,7 +72,7 @@ async def analyze_emotion(
 
     # 4. 결과 반환
     return {
-        "interviewID": interviewID,
+        "interviewId": interviewId,
         "seq": seq,
         "score": round(final_score, 2)
     }
