@@ -1,8 +1,8 @@
 from langgraph.graph import StateGraph, END
-from src.interview.nodes import (
+from interview.nodes import (
     first_question_node, answer_node, analyze_node, next_question_node, end_node
 )
-from src.interview.model import InterviewState
+from interview.model import InterviewState
 
 # 최대 질문 수 설정
 MAX_SEQ = 3

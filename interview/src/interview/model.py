@@ -10,4 +10,4 @@ class InterviewState(BaseModel):
     is_finished: bool = False
     text: Optional[str] = None
     job: Optional[str] = None
-    interview_id: Optional[int] = None
+    interview_id: Optional[str] = None

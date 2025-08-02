@@ -5,10 +5,10 @@ from pydantic import BaseModel
 import os
 import shutil
 import uuid
-from src.interview.graph import graph_app
-from src.interview.model import InterviewState
-from src.stt.transcriber import convert_to_wav, transcribe_audio
-from src.interview.nodes import analyze_node, next_question_node
+from interview.graph import graph_app
+from interview.model import InterviewState
+from stt.transcriber import convert_to_wav, transcribe_audio
+from interview.nodes import analyze_node, next_question_node
 
 
 app = FastAPI()
@@ -35,7 +35,6 @@ class StateRequest(BaseModel):
     text: str
     seq: int = 1
 
-# ✅ 1. 첫 질문 생성
 @app.post("/first-ask")
 async def first_ask(payload: StateRequest):
     try:
@@ -63,11 +62,11 @@ async def first_ask(payload: StateRequest):
         print(f"❌ [first-ask ERROR]: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ✅ 2. STT 음성 분석 + 답변 저장 + 분석 + 다음 질문
+# 2. STT 음성 분석 + 답변 저장 + 분석 + 다음 질문
 @app.post("/stt-ask")
 async def stt_ask(
     file: UploadFile = File(...),
-    interviewId: int = Form(...),
+    interviewId: str = Form(...),
     seq: int = Form(...)
 ):
     try:
@@ -103,7 +102,7 @@ async def stt_ask(
         state = next_question_node(state)
 
         return {
-            "interviewID": state.interview_id,
+            "interviewId": state.interview_id,
             "seq": state.seq,
             "interview_answer": transcript,
             "interview_answer_good": state.last_analysis.get("good", ""),

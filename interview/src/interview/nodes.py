@@ -1,5 +1,5 @@
-from src.interview.model import InterviewState
-from src.interview.chroma_qa import get_similar_qa
+from interview.model import InterviewState
+from interview.chroma_qa import get_similar_qa
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 import os

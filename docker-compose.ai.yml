@@ -8,6 +8,16 @@ services:
       - "8000:8000"
     networks:
       - backend-net   # backend와 통일
+      
+  interview-ai:
+    image: tp9ns/recruitai:interview-ai
+    container_name: interview-ai
+    ports:
+      - "8001:8001"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    networks:
+      - backend-net
 
   ocr-server:
     image: tp9ns/recruitai:ocr-server
