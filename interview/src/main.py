@@ -28,13 +28,12 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # 🔹 상태 관리 (간단한 예시 - 실제로는 DB나 Redis로 대체 가능)
 session_state = {}
 
-# 🔹 FastAPI 모델
-# ✅ request body 구조 정의
+
 class StateRequest(BaseModel):
-    interviewID: int
-    Job: str
-    Text: str
-    seq: int = 0
+    interviewId: str
+    job: str
+    text: str
+    seq: int = 1
 
 # ✅ 1. 첫 질문 생성
 @app.post("/first-ask")
@@ -43,9 +42,9 @@ async def first_ask(payload: StateRequest):
         print("📩 [first_ask] 요청 수신:", payload)
 
         state = InterviewState(
-            interview_id=payload.interviewID,
-            job=payload.Job,
-            text=payload.Text,
+            interview_id=payload.interviewId,
+            job=payload.job,
+            text=payload.text,
             seq=payload.seq,
         )
 
@@ -68,7 +67,7 @@ async def first_ask(payload: StateRequest):
 @app.post("/stt-ask")
 async def stt_ask(
     file: UploadFile = File(...),
-    interviewID: int = Form(...),
+    interviewId: int = Form(...),
     seq: int = Form(...)
 ):
     try:
@@ -90,7 +89,7 @@ async def stt_ask(
 
         # 4. 상태 구성
         state = InterviewState(
-            interview_id=interviewID,
+            interview_id=interviewId,
             seq=seq,
             questions=[],    # 실제 구현에선 DB에서 불러와야 함
             answers=[]       # 마찬가지
