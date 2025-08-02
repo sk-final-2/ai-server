@@ -1,22 +1,60 @@
-# 환경 설정
-.env
-
-# 모델 및 로그
-model_output/
-checkpoints/
-*.log
-
-# Python 캐시
+# Python 기본
 __pycache__/
 *.py[cod]
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
 
-# IDE 설정
-.vscode/
-
-# 가상환경 (로컬 테스트용)
-.venv/
-env/
+# 가상환경
 venv/
+env/
+.venv/
 
-# 기타
-*.sqlite3
+# VSCode, PyCharm 설정
+.vscode/
+.idea/
+
+# 운영체제 기본 파일
+.DS_Store
+Thumbs.db
+
+# 환경변수 파일
+.env
+.env.*
+
+# 로그 및 테스트
+*.log
+.cache/
+.coverage
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+htmlcov/
+.mypy_cache/
+.dmypy.json
+
+# Jupyter
+.ipynb_checkpoints/
+
+# FastAPI / Uvicorn
+*.pid
+
+# Docker
+*.tar
+__docker_temp__/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# 에디터 백업파일
+*.bak
+*.swp
+*~
+
+# 👇 사용자 지정 폴더 (추가한 부분)
+temp/
+chroma_data/
