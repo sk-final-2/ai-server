@@ -5,11 +5,9 @@ class InterviewState(BaseModel):
     questions: List[str] = Field(default_factory=list)
     answers: List[str] = Field(default_factory=list)
     last_analysis: Optional[Dict] = None
-    last_answer: Optional[str] = None  # ✅ 사용자 답변을 담을 필드
     step: int = 0
     seq: int = 0
     is_finished: bool = False
     text: Optional[str] = None
     job: Optional[str] = None
     interview_id: Optional[str] = None
-    resume: str = ""

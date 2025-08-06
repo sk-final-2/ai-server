@@ -2,8 +2,8 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 import os
 # import requests # requests 모듈이 더 이상 필요 없으므로 제거하거나 주석 처리합니다.
-from src.stt.transcriber import convert_to_wav, transcribe_audio
-from src.stt.corrector import correct_transcript 
+from test_src.stt.transcriber import convert_to_wav, transcribe_audio
+from test_src.stt.corrector import correct_transcript 
 app = FastAPI()
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "temp")
