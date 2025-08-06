@@ -61,7 +61,7 @@ async def first_ask(payload: StateRequest):
         )
 
         # ✅ dict로 변환해서 전달해야 LangGraph가 정상 작동함
-        result = graph_app.invoke(state.dict())
+        result = graph_app.invoke(state.model_dump())
 
         # ✅ dict로 올 경우 다시 모델로 변환
         if isinstance(result, dict):
@@ -113,6 +113,7 @@ async def upload_resume(
         raise HTTPException(status_code=500, detail=str(e))
 
 # ✅ /stt-ask: 영상 업로드 → STT 분석 → 꼬리 질문 생성
+# ✅ stt-ask: 영상 업로드 → STT 분석 → 꼬리 질문 생성
 @app.post("/stt-ask")
 async def stt_ask(
     file: UploadFile = File(...),
@@ -134,7 +135,13 @@ async def stt_ask(
             raise HTTPException(status_code=404, detail="면접 세션이 없습니다.")
 
         state.answers.append(transcript)
-        updated_state = graph_app.invoke(state)
+
+        updated_state = graph_app.invoke(state.model_dump())
+
+        # ✅ dict → 객체 변환
+        if isinstance(updated_state, dict):
+            updated_state = InterviewState(**updated_state)
+
         session_state[interviewId] = updated_state
 
         return {

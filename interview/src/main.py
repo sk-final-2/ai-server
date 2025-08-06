@@ -2,15 +2,15 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import os 
-from io import BytesIO
-from interview.chroma_qa import save_qa_pair
+import os
 from interview.model import InterviewState
-from interview.nodes import analyze_node, next_question_node, first_question_prompt, llm
+from interview.graph import graph_app
 from stt.transcriber import convert_to_wav, transcribe_audio
 from stt.corrector import correct_transcript
+
 app = FastAPI()
 
+# ✅ CORS 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,15 +20,18 @@ app.add_middleware(
 
 UPLOAD_DIR = "temp"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# ✅ 세션 상태 저장
 session_state = {}
 
+# ✅ 첫 질문 요청용 Request 모델
 class StateRequest(BaseModel):
     interviewId: str
     job: str
     text: str
     seq: int = 1
 
-# ✅ /first-ask: 자기소개서 텍스트 기반 질문 생성
+# ✅ 자기소개서 텍스트 기반 첫 질문 생성
 @app.post("/first-ask")
 async def first_ask(payload: StateRequest):
     try:
@@ -39,30 +42,24 @@ async def first_ask(payload: StateRequest):
             seq=payload.seq
         )
 
-        prompt = first_question_prompt.format_messages(resume=payload.text)
-        response = llm.invoke(prompt)
-        first_question = response.content.strip()
+        result = graph_app.invoke(state.model_dump())
 
-        state.questions.append(first_question)
-        session_state[payload.interviewId] = state
+        # ✅ dict일 경우 다시 모델로 변환
+        if isinstance(result, dict):
+            result = InterviewState(**result)
 
-        # ✅ 첫 질문 저장
-        try:
-            save_qa_pair("[FIRST] " + first_question, "")
-            print("✅ [ChromaDB 첫 질문 저장 완료]")
-        except Exception as e:
-            print(f"❌ [첫 질문 저장 실패]: {e}")
+        session_state[payload.interviewId] = result
 
         return {
             "interviewId": payload.interviewId,
-            "interview_question": first_question
+            "interview_question": result.questions[-1] if result.questions else None
         }
 
     except Exception as e:
-        print(f"❌ [first-ask ERROR]: {e}")
+        print(f"[first-ask ERROR] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ✅ /stt-ask: 영상 업로드 → STT 분석 → 꼬리 질문 생성
+# ✅ STT 기반 꼬리 질문 생성
 @app.post("/stt-ask")
 async def stt_ask(
     file: UploadFile = File(...),
@@ -70,42 +67,42 @@ async def stt_ask(
     seq: int = Form(...)
 ):
     try:
+        # 1. 파일 저장
         input_path = os.path.join(UPLOAD_DIR, file.filename)
         with open(input_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
+            f.write(await file.read())
 
+        # 2. WAV 변환 + STT + 교정
         wav_path = os.path.join(UPLOAD_DIR, "converted.wav")
         convert_to_wav(input_path, wav_path)
-        transcript = correct_transcript(transcript)
+        transcript = transcribe_audio(wav_path)
+        corrected = correct_transcript(transcript)
 
+        # 3. 상태 불러오기
         state = session_state.get(interviewId)
         if not state:
             raise HTTPException(status_code=404, detail="면접 세션이 없습니다.")
-        # ✅ 이전 질문 저장
-        prev_question = state.questions[-1] if state.questions else ""
 
         state.answers.append(transcript)
-        state = analyze_node(state)
-        state = next_question_node(state)
-        session_state[interviewId] = state
-         # ✅ 질문-답변 저장
-        try:
-            save_qa_pair(prev_question, transcript)
-            print("✅ [ChromaDB QA 저장 완료]")
-        except Exception as e:
-            print(f"❌ [QA 저장 실패]: {e}")
+
+        # 4. LangGraph 실행
+        result = graph_app.invoke(state.model_dump())
+
+        if isinstance(result, dict):
+            result = InterviewState(**result)
+
+        session_state[interviewId] = result
 
         return {
             "interviewId": interviewId,
-            "seq": state.seq,
-            "interview_answer": transcript,
-            "interview_answer_good": state.last_analysis.get("good", ""),
-            "interview_answer_bad": state.last_analysis.get("bad", ""),
-            "score": state.last_analysis.get("score", 0),
-            "new_question": state.questions[-1] if state.questions else ""
+            "seq": result.seq,
+            "interview_answer": corrected,
+            "interview_answer_good": result.last_analysis.get("good", ""),
+            "interview_answer_bad": result.last_analysis.get("bad", ""),
+            "score": result.last_analysis.get("score", 0),
+            "new_question": result.questions[-1] if result.questions else ""
         }
 
     except Exception as e:
-        print(f"❌ [stt-ask ERROR]: {e}")
+        print(f"[stt-ask ERROR] {e}")
         return JSONResponse(status_code=500, content={"detail": str(e)})
