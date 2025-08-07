@@ -14,9 +14,8 @@ class BlinkCounterVideo:
     RIGHT_EYE = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
     LEFT_EYE = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398]
 
-    def __init__(self, video_path, ear_threshold=0.3, consec_frames=3, blink_limit_10s=5, penalty_per_excess=10):
+    def __init__(self, ear_threshold=0.3, consec_frames=3, blink_limit_10s=5, penalty_per_excess=10):
         self.generator = FaceMeshGenerator()
-        self.video_path = video_path
         self.ear_threshold = ear_threshold # EAR 임계값 (이 값보다 작으면 눈이 감겼다고 판단)
         self.consec_frames = consec_frames # 눈이 감겼다고 판정하기 위한 최소 연속 프레임 수
         self.blink_counter = 0
@@ -113,46 +112,28 @@ class BlinkCounterVideo:
 
         return blink_score, reasons_kor_text, penalty, total_violations
 
-    def run(self):
-        cap = cv.VideoCapture(self.video_path)
-        if not cap.isOpened():
-            print(f"Failed to open video: {self.video_path}")
-            return
+    def process(self, landmarks):
+        right_ear = self.eye_aspect_ratio(self.RIGHT_EYE_EAR, landmarks)
+        left_ear = self.eye_aspect_ratio(self.LEFT_EYE_EAR, landmarks)
+        ear = (right_ear + left_ear) / 2.0
+        self.update_blink_count(ear)
 
-        cap.set(cv.CAP_PROP_FRAME_WIDTH, 1280)
-        cap.set(cv.CAP_PROP_FRAME_HEIGHT, 720)
+        current_time = time.time()
+        while self.blink_timestamps and current_time - self.blink_timestamps[0] > 10:
+            self.blink_timestamps.popleft()
 
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
+        if len(self.blink_timestamps) > self.blink_limit_10s and current_time - self.last_violation_time > 10:
+            self.blink_violations.append("과도한 깜빡임")
+            self.last_violation_time = current_time
 
-            frame = self.process_frame(frame)
-            cv.imshow("Blink Detection - Video", frame)
+    def get_result(self):
+        if not self.blink_violations:
+            return {"score": 100, "penalty": 0, "reasons": []}
 
-            if cv.waitKey(1) & 0xFF == 27:  # ESC
-                break
-
-        cap.release()
-        cv.destroyAllWindows()
-
-        blink_score, reasons_kor_text, penalty, _ = self.calculate_score_and_text()
-        if blink_score == 100:
-            print(f"눈 깜빡임 감지 분석 결과: 위반한 점이 없습니다. 점수는 100점입니다!")
-        else:
-            print(f"눈 깜빡임 감지 분석 결과: {reasons_kor_text}로 인해 {penalty}점 감점, 점수는 {blink_score}점입니다!")
-
-    def run_and_get_result(self):
-        self.run()
-        return self.calculate_score_and_text()  # (score, reasons, penalty, count)
-
-if __name__ == "__main__":
-    video_path = "testtt.mp4"
-    blink_detector = BlinkCounterVideo(
-        video_path=video_path,
-        ear_threshold=0.3,
-        consec_frames=3,
-        blink_limit_10s=5,
-        penalty_per_excess=10
-    )
-    blink_detector.run()
+        reason_counts = Counter(self.blink_violations)
+        penalty = len(self.blink_violations) * self.penalty_per_excess
+        return {
+            "score": max(0, 100 - penalty),
+            "penalty": penalty,
+            "reasons": [f"{reason} {count}회" for reason, count in reason_counts.items()]
+        }

@@ -2,20 +2,17 @@ import cv2 as cv
 import mediapipe as mp
 import numpy as np
 from collections import Counter
+from blink_detection.FaceMeshModule import FaceMeshGenerator
 import pickle
 import os
 
 class GazeDirectionVideo:
-    # 눈 좌우 끝과 홍채 중심 인덱스
     LEFT_EYE_LANDMARKS = [33, 133]
     RIGHT_EYE_LANDMARKS = [362, 263]
     LEFT_IRIS = [468]
     RIGHT_IRIS = [473]
-
-    # head_pose 학습 랜드마크
     HEAD_POSE_LANDMARKS = [1, 33, 61, 199, 263, 291, 362]
 
-    # 최종 출력용 번역
     REASON_TRANSLATIONS = {
         "LOOK_LEFT": "오른쪽 응시",
         "LOOK_RIGHT": "왼쪽 응시",
@@ -29,7 +26,6 @@ class GazeDirectionVideo:
         self.stable_frames_required = stable_frames_required
         self.violations = []
 
-        # Mediapipe FaceMesh
         mp_face_mesh = mp.solutions.face_mesh
         self.face_mesh = mp_face_mesh.FaceMesh(
             max_num_faces=1,
@@ -38,31 +34,27 @@ class GazeDirectionVideo:
             min_tracking_confidence=0.5
         )
 
-        # head_pose 모델 로드
         BASE_DIR = os.path.dirname(__file__)
-        MODEL_PATH = os.path.join(BASE_DIR, "..", "head_pose", "model.pkl")
+        MODEL_PATH = os.path.join(BASE_DIR, "..", "head_detection", "model.pkl")
         MODEL_PATH = os.path.abspath(MODEL_PATH)
         with open(MODEL_PATH, "rb") as f:
             self.head_pose_model = pickle.load(f)
 
-        # head_pose 허용 오차
         self.PITCH_TOL = 0.05
         self.YAW_TOL = 0.08
         self.ROLL_TOL = 0.08
 
-        # 캘리브레이션 기본값
         self.PITCH_CENTER = 0.0
         self.YAW_CENTER = 0.0
         self.ROLL_CENTER = 0.0
 
-    # ===== Head Pose =====
     def predict_head_pose(self, landmarks):
         coords = []
         for idx in self.HEAD_POSE_LANDMARKS:
             lm = landmarks[idx]
             coords.extend([lm.x, lm.y])
         coords = np.array(coords).reshape(1, -1)
-        return self.head_pose_model.predict(coords)[0]  # [pitch, yaw, roll]
+        return self.head_pose_model.predict(coords)[0]
 
     def is_head_forward(self, pitch, yaw, roll):
         return (
@@ -72,7 +64,6 @@ class GazeDirectionVideo:
         )
 
     def calibrate_center_from_video(self, cap, duration_sec=3):
-        """3초 동안 고개 중심값 캘리브레이션"""
         print(f"[INFO] Calibrating head pose for {duration_sec} seconds... Please face forward.")
         total_pitch, total_yaw, total_roll = 0, 0, 0
         count = 0
@@ -108,7 +99,6 @@ class GazeDirectionVideo:
         print(f"[INFO] Center calibrated: Pitch={self.PITCH_CENTER:.3f}, "
               f"Yaw={self.YAW_CENTER:.3f}, Roll={self.ROLL_CENTER:.3f}")
 
-    # ===== Gaze Direction =====
     def get_gaze_direction(self, landmarks, w, h):
         left_iris = np.array([landmarks[self.LEFT_IRIS[0]].x * w,
                               landmarks[self.LEFT_IRIS[0]].y * h])
@@ -146,8 +136,7 @@ class GazeDirectionVideo:
         else:
             return "FORWARD"
 
-    # ===== Main Run =====
-    def run(self):
+    def _process(self):
         cap = cv.VideoCapture(self.video_path)
         if not cap.isOpened():
             print(f"[ERROR] Failed to open video: {self.video_path}")
@@ -155,14 +144,8 @@ class GazeDirectionVideo:
 
         w = int(cap.get(cv.CAP_PROP_FRAME_WIDTH))
         h = int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
-
-        # 1. 캘리브레이션
         self.calibrate_center_from_video(cap, duration_sec=3)
-
-        # 2. 영상 처음부터 재시작
         cap.set(cv.CAP_PROP_POS_FRAMES, 0)
-        
-        # FPS 샘플링 설정 (1초에 1프레임만 분석)
         fps = cap.get(cv.CAP_PROP_FPS) or 30
         frame_interval = int(fps / 1)
         frame_count = 0
@@ -185,48 +168,36 @@ class GazeDirectionVideo:
             if results.multi_face_landmarks:
                 for face_landmarks in results.multi_face_landmarks:
                     pitch, yaw, roll = self.predict_head_pose(face_landmarks.landmark)
-
                     if self.is_head_forward(pitch, yaw, roll):
                         gaze_dir = self.get_gaze_direction(face_landmarks.landmark, w, h)
-
-                        # 새로운 위반 시작 순간
                         if gaze_dir != "FORWARD" and (not is_in_violation or gaze_dir != current_violation_type):
                             self.violations.append(gaze_dir)
                             is_in_violation = True
                             current_violation_type = gaze_dir
-
-                        # 위반 종료 순간
                         if gaze_dir == "FORWARD":
                             is_in_violation = False
                             current_violation_type = None
-
-                        # 화면 표시
-                        cv.putText(frame, gaze_dir, (30, 60),
-                                cv.FONT_HERSHEY_SIMPLEX, 0.7,
-                                (0, 0, 255) if gaze_dir != "FORWARD" else (0, 255, 0), 2)
-                    else:
-                        cv.putText(frame, "Head not forward", (30, 60),
-                                cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-
-            cv.imshow("Gaze Direction Detection", frame)
-            if cv.waitKey(1) & 0xFF == 27:
-                break
-
         cap.release()
-        cv.destroyAllWindows()
 
-        # 결과 출력 (한글 변환)
+    def _calculate_result(self):
         reason_counts = Counter(self.violations)
-        reason_text_parts = [
-            f"{count}초 동안의 {self.REASON_TRANSLATIONS.get(reason, reason)}"
-            for reason, count in reason_counts.items()
-        ]
-        reasons_kor_text = ", ".join(reason_text_parts) if reason_counts else "위반 없음"
-
         total_penalty = len(self.violations) * self.penalty_per_violation
         final_score = max(0, 100 - total_penalty)
+        return final_score, total_penalty, reason_counts
 
-        print(f"[RESULT] Score: {final_score}, Text: {reasons_kor_text}로 인해 {total_penalty}점 감점되었습니다.")
+    def run(self):
+        self._process()
+        score, penalty, reasons = self._calculate_result()
+        reason_text_parts = [
+            f"{count}초 동안의 {self.REASON_TRANSLATIONS.get(reason, reason)}"
+            for reason, count in reasons.items()
+        ]
+        reasons_kor_text = ", ".join(reason_text_parts) if reasons else "위반 없음"
+        print(f"시선처리 감지 분석 결과: {reasons_kor_text}로 인해 {penalty}점 감점, 점수는 {score}점입니다!")
+
+    def run_and_get_result(self):
+        self._process()
+        return self._calculate_result()
 
 
 if __name__ == "__main__":
