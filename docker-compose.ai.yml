@@ -27,6 +27,14 @@ services:
     networks:
       - backend-net
 
+  tracking-ai:
+    image: tp9ns/recruitai:tracking-ai
+    container_name: tracking-ai
+    ports:
+      - "8003:8003"
+    networks:
+      - backend-net
+      
 networks:
   backend-net:
     external: true
