@@ -20,3 +20,9 @@ venv/
 
 # 기타
 *.sqlite3
+
+# 테스트 파일
+src/blink_detection/blink_realtime.py
+*.mp4
+src/head_pose/head_pose_module.py
+src/head_pose/head_pose_video_module.py
