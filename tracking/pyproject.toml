@@ -1,0 +1,28 @@
+[project]
+name = "tracking"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "nueij0429",email = "ssjjjieun0429@gmail.com"}
+]
+readme = "README.md"
+packages = [{ include = "src" }]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy (==1.26.4)",
+    "mediapipe (==0.10.21)",
+    "opencv-python (<4.10)",
+    "matplotlib (>=3.10.5,<4.0.0)",
+    "python-multipart (>=0.0.20,<0.0.21)",
+    "uvicorn (>=0.35.0,<0.36.0)",
+    "fastapi (>=0.116.1,<0.117.0)",
+    "scikit-learn (>=1.7.1,<2.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
