@@ -10,6 +10,28 @@ import uuid
 
 app = FastAPI()
 
+# 감정별 감점 기준
+emotion_penalty_map = {
+    "sad": 1,
+    "angry": 2,
+    "surprise": 2,
+    "disgust": 2,
+    "fear": 3,
+    "neutral": 0,
+    "happy": 0
+}
+# 영어 감정을 한글로 매핑
+emotion_kor_map = {
+    "sad": "슬픔",
+    "angry": "화남",
+    "surprise": "놀람",
+    "disgust": "혐오",
+    "fear": "두려움",
+    "neutral": "무표정",
+    "happy": "행복"
+}
+
+
 @app.post("/analyze")
 async def analyze_emotion(
     file: UploadFile = File(...),
@@ -59,20 +81,38 @@ async def analyze_emotion(
     cap.release()
     os.remove(temp_filename)
 
-    # 3. 감정 분석 후 점수 계산
-    penalty = 0
-    for sec, top_pairs in per_second_emotions.items():
-        flat_emotions = {emo for pair in top_pairs for emo in pair}
-        if not ("neutral" in flat_emotions and "happy" in flat_emotions):
-            penalty += 1
+    # 3. 초당 감정 집계 → 가장 많이 나온 감정만 1초에 1번 반영
+    emotion_counter = Counter()
+    total_penalty = 0
 
+    for second, pairs in per_second_emotions.items():
+        top1_list = [top1 for top1, _ in pairs]  # top1 감정만 추출
+        if top1_list:
+            most_common_emotion, _ = Counter(top1_list).most_common(1)[0]
+            emotion_counter[most_common_emotion] += 1
+            total_penalty += emotion_penalty_map.get(most_common_emotion, 0)
 
-    max_seconds = len(per_second_emotions)
-    final_score = max(0, 100 - (penalty / max_seconds) * 100)
+    # 4. 최종 점수 계산
+    final_score = max(0, 100 - total_penalty)
 
-    # 4. 결과 반환
+    # 5. 설명 메시지 생성
+    # 5. 설명 메시지 생성 (모든 감정 포함)
+    all_emotion_parts = []
+    for emo, count in emotion_counter.items():
+        kor_name = emotion_kor_map.get(emo, emo)
+        all_emotion_parts.append(f"{kor_name} {count}초")
+
+    if all_emotion_parts:
+        message = (
+            f"표정 감지 분석 결과: {', '.join(all_emotion_parts)}로 인해 "
+            f"감점 {total_penalty}점, 점수는 {round(final_score, 2)}점입니다!"
+        )
+    else:
+        message = f"표정 감지 분석 결과: 감정 인식 실패, 점수는 {round(final_score, 2)}점입니다!"
+    # 6. 결과 반환
     return {
         "interviewId": interviewId,
         "seq": seq,
-        "score": round(final_score, 2)
+        "score": round(final_score, 2),
+        "text": message
     }
