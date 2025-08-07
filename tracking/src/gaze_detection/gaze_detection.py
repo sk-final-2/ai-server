@@ -2,10 +2,9 @@ import cv2 as cv
 import mediapipe as mp
 import numpy as np
 from collections import Counter
-from blink_detection.FaceMeshModule import FaceMeshGenerator
+from src.blink_detection.FaceMeshModule import FaceMeshGenerator
 import pickle
 import os
-
 class GazeDirectionVideo:
     LEFT_EYE_LANDMARKS = [33, 133]
     RIGHT_EYE_LANDMARKS = [362, 263]

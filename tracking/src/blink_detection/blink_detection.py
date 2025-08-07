@@ -2,9 +2,8 @@ import cv2 as cv
 import numpy as np
 import time
 from collections import deque, Counter
-from .FaceMeshModule import FaceMeshGenerator
-from .utils import DrawingUtils
-
+from src.blink_detection.FaceMeshModule import FaceMeshGenerator
+from src.blink_detection.utils import DrawingUtils
 
 class BlinkCounterVideo:
     # 눈의 EAR(Eye Aspect Ratio) 계산에 사용할 랜드마크 인덱스
