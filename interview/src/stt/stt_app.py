@@ -9,8 +9,6 @@ app = FastAPI()
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "temp")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# 🔗 너의 스프링 백엔드 주소로 바꿔줘 (이 변수도 더 이상 사용되지 않으므로 제거하거나 주석 처리합니다.)
-# BACKEND_URL = os.getenv("BACKEND_URL")
 
 @app.post("/upload")
 async def upload_audio(file: UploadFile = File(...)):

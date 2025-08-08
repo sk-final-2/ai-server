@@ -3,14 +3,11 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
-from io import BytesIO
-from docx import Document
-import fitz  # PyMuPDF
 from stt.corrector import correct_transcript
 from interview.model import InterviewState
 from interview.chroma_qa import reset_chroma_all
 from stt.transcriber import convert_to_wav, transcribe_audio
-from interview.test_graph import a_graph  # 테스트용 그래프
+from interview.graph import graph_app  # 테스트용 그래프
 from typing import Optional, Literal
 app = FastAPI()
 
@@ -36,23 +33,6 @@ class StateRequest(BaseModel):
     interviewId: str   
     count: int= 0 #수정 예정 
 
-# ✅ 문서 텍스트 추출 함수
-def extract_text_from_file(file: UploadFile) -> str:
-    filename = file.filename
-    content = BytesIO(file.file.read())
-
-    if filename.endswith(".pdf"):
-        doc = fitz.open(stream=content, filetype="pdf")
-        text = "\n".join([page.get_text() for page in doc])
-        doc.close()
-        return text
-
-    elif filename.endswith(".docx"):
-        document = Document(content)
-        return "\n".join([p.text for p in document.paragraphs])
-
-    else:
-        raise HTTPException(status_code=400, detail="지원하지 않는 파일 형식입니다. (PDF 또는 DOCX)")
     
 # print("📦 payload:", payload.model_dump())
 # ✅ /first-ask: 텍스트 기반 첫 질문 생성 (LangGraph 기반)
@@ -77,7 +57,7 @@ async def first_ask(payload: StateRequest):
             options_locked=False
             )
 
-        result = a_graph.invoke(state)
+        result = graph_app.invoke(state)
         if isinstance(result, dict):
             result = InterviewState(**result)
 
@@ -130,7 +110,7 @@ async def stt_ask(
 
         # 4. 답변 추가 및 상태 갱신
         state.last_answer = transcript  # ✅ answer_node에서 참조
-        result = a_graph.invoke(state.model_dump())
+        result = graph_app.invoke(state.model_dump())
 
         if isinstance(result, dict):
             result = InterviewState(**result)
@@ -166,7 +146,7 @@ async def text_ask(payload: TextAskRequest):
     state.last_answer = payload.answer   # ✅ 핵심
     state.answer.append(payload.answer)
 
-    result = a_graph.invoke(state)       # ✅ 모델 그대로
+    result = graph_app.invoke(state)       # ✅ 모델 그대로
     if isinstance(result, dict):
         result = InterviewState(**result)
 
