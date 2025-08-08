@@ -295,7 +295,7 @@ def next_question_node(state: InterviewState) -> InterviewState:
 
         next_q = None
         attempt = 0
-        max_attempts = 3
+        max_attempts = getattr(state, "retry_max", 3)
 
         while attempt < max_attempts:
             try:
