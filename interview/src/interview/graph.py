@@ -1,45 +1,52 @@
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph
 from interview.model import InterviewState
 from interview.nodes import (
+    router_node,
     first_question_node,
     answer_node,
     analyze_node,
-    next_question_node,
+    next_question_node
 )
 
-def router_node(state: dict) -> str:
-    if state.get("is_finished"):
-        print("\U0001F3C1 [router_node] 인터뷰 종료")
-        return "__end__"
-    elif state.get("step", 0) == 0:
-        print("\U0001F9ED [router_node] 첫 질문 생성 흐름")
-        return "first_question"
-    else:
-        print("\U0001F9ED [router_node] 답변 수집 흐름")
-        return "answer"
-
-def create_graph():
-    print("✅ FSM 컴파일 시작")
-    builder = StateGraph(dict)
-
-    builder.add_node("router", router_node)
+def create_first_graph():
+    builder = StateGraph(InterviewState)
     builder.add_node("first_question", first_question_node)
+    builder.set_entry_point("first_question")
+    builder.set_finish_point("first_question")
+    return builder.compile()
+
+# 후속 질문 FSM
+def create_followup_graph():
+    builder = StateGraph(InterviewState)
     builder.add_node("answer", answer_node)
     builder.add_node("analyze", analyze_node)
     builder.add_node("next_question", next_question_node)
-
-    builder.set_entry_point("router")
-    builder.add_conditional_edges("router", router_node, {
-        "first_question": "first_question",
-        "answer": "answer",
-        "__end__": END
-    })
-
-    builder.add_edge("first_question", "answer")
+    builder.set_entry_point("answer")
     builder.add_edge("answer", "analyze")
     builder.add_edge("analyze", "next_question")
-    builder.add_edge("next_question", "router")
-
+    builder.set_finish_point("next_question")
     return builder.compile()
 
-graph_app = create_graph()
+    # 4. FSM 컴파일
+    #graph_app = builder.compile()
+    #print("✅ FSM 생성 완료")
+    #return graph_app
+first_graph = create_first_graph()
+followup_graph = create_followup_graph()
+# 사용 예시
+if __name__ == "__main__":
+    # 초기 상태
+    initial_state = {
+        "text": "샘플 이력서 텍스트...",
+        "job": "웹 개발자",
+        "seq": 0,
+        "questions": [],
+        "answer": [],
+        "step": 0,
+        "is_finished": False,
+        "last_analysis": None
+    }
+    
+    # 그래프 실행
+    result = first_graph.invoke(initial_state)
+    print("최종 결과:", result)

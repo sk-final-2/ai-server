@@ -1,3 +1,4 @@
+# 아직 수정 안함
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,7 +29,7 @@ session_state = {}
 class StateRequest(BaseModel):
     interviewId: str
     job: str
-    text: str
+    text: str # 자소서 or 포트폴리오 텍스트
     seq: int = 1
 
 # ✅ 자기소개서 텍스트 기반 첫 질문 생성
@@ -36,7 +37,7 @@ class StateRequest(BaseModel):
 async def first_ask(payload: StateRequest):
     try:
         state = InterviewState(
-            interview_id=payload.interviewId,
+            interviewId=payload.interviewId,
             job=payload.job,
             text=payload.text,
             seq=payload.seq
@@ -83,7 +84,7 @@ async def stt_ask(
         if not state:
             raise HTTPException(status_code=404, detail="면접 세션이 없습니다.")
 
-        state.answers.append(transcript)
+        state.answer.append(transcript)
 
         # 4. LangGraph 실행
         result = graph_app.invoke(state.model_dump())

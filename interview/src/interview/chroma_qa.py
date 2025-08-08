@@ -25,3 +25,13 @@ def get_similar_qa(answer: str, k=2):
         n_results=k
     )
     return [doc for sublist in results["documents"] for doc in sublist]
+
+def reset_chroma_all():
+    """qa_logs 컬렉션 전체 리셋 (앱 시작 시 호출)"""
+    try:
+        client.delete_collection("qa_logs")
+    except Exception:
+        pass
+    global collection
+    collection = client.get_or_create_collection(name="qa_logs")
+    print("🧹 ChromaDB: qa_logs 컬렉션 리셋 완료")

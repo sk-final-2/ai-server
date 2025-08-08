@@ -1,0 +1,60 @@
+from langgraph.graph import StateGraph, END
+from interview.model import InterviewState
+from interview.nodes import (
+    first_question_node,
+    answer_node,
+    analyze_node,
+    next_question_node,
+)
+
+# ✅ 상태와 다음 경로를 dict로 리턴
+def router_node(state: InterviewState) -> dict:
+    if isinstance(state, dict):
+        state = InterviewState(**state)
+
+    if state.is_finished:
+        print("🏁 [router_node] 인터뷰 종료")
+        next_node = "end"
+    elif state.step == 0:
+        print("🧭 [router_node] 첫 질문 생성 흐름")
+        next_node = "first_question"
+    else:
+        print("🧭 [router_node] 답변 수집 흐름")
+        next_node = "answer"
+
+    return {
+        "__state__": state,
+        "__next__": next_node
+    }
+
+# ✅ create_graph 함수
+def create_graph():
+    print("✅ FSM 컴파일 시작")
+    builder = StateGraph(InterviewState)
+
+    # 노드 등록
+    builder.add_node("first_question", first_question_node)
+    builder.add_node("answer", answer_node)
+    builder.add_node("analyze", analyze_node)
+    builder.add_node("next_question", next_question_node)
+    builder.add_node("router", router_node)
+
+    # 흐름 정의
+    builder.add_edge("first_question", "answer")
+    builder.add_edge("answer", "analyze")
+    builder.add_edge("analyze", "next_question")
+    builder.add_edge("next_question", "router")
+
+    # 조건 분기 정의
+    builder.add_conditional_edges(
+        "router",
+        condition=lambda state_dict: state_dict["__next__"],
+        path_map={
+            "first_question": "first_question",
+            "answer": "answer",
+            "end": END
+        }
+    )
+
+    builder.set_entry_point("router")
+    return builder.compile()
