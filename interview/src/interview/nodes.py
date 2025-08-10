@@ -1,12 +1,21 @@
 from interview.model import InterviewState
 from langchain_core.prompts import ChatPromptTemplate
-from interview.chroma_qa import get_similar_qa, save_qa_pair
+from utils.chroma_qa import get_similar_question, save_answer, save_question
+from utils.chroma_setup import reset_interview
 from langchain_openai import ChatOpenAI
 from typing import Union
 import os, json
 from dotenv import load_dotenv
 
 load_dotenv("src/interview/.env")
+
+# LLM 설정       
+llm = ChatOpenAI(
+    openai_api_key=os.getenv("OPENAI_API_KEY"),
+    base_url="https://api.groq.com/openai/v1",
+    model="llama3-8b-8192",
+    temperature=0.7
+)
 
 def safe_parse_json_from_llm(content: str) -> dict:
     print("📨 [LLM 응답 원문]:", content)
@@ -36,20 +45,13 @@ def get_type_rule(state):
     return type_rule_map.get(state.interviewType, "")
 
 def get_Language_rule(lang: str):
-    if lang.lower() == "KOREAN":
+    if lang == "KOREAN":
         return "출력은 반드시 한국어로만 작성하세요."
-    elif lang.lower() == "ENGLISH":
+    elif lang == "ENGLISH":
         return "Output must be written in English only."
     else:
         return ""
-    
-# LLM 설정       
-llm = ChatOpenAI(
-    openai_api_key=os.getenv("OPENAI_API_KEY"),
-    base_url="https://api.groq.com/openai/v1",
-    model="llama3-8b-8192",
-    temperature=0.7
-)
+
 def router_node(state: InterviewState) -> str:
     if not state.answer:
         print("🧭 [router_node] 첫 질문 생성 흐름")
@@ -101,22 +103,22 @@ def first_question_node(state: InterviewState) -> InterviewState:
     print("✅ state.raw:", state.model_dump())
     """🎯 첫 질문 생성 노드"""
     try:
-        # ✅ Pydantic 객체 보장
         if isinstance(state, dict):
             state = InterviewState(**state)
 
         print("\n======================")
         print("🎯 [first_question_node] 진입")
         print(f"💼 지원 직무: {state.job}")
-        print(f"📄 이력서 텍스트 미리보기: {state.text[:100] if state.text else state.resume[:100] if state.resume else '❌ 없음'}")
+        preview = state.text or state.resume or ""
+        print(f"📄 이력서 텍스트 미리보기: {preview[:100] if preview else '❌ 없음'}")
         print("======================")
 
-        # ✅ 직무 기본값 처리
+        # 직무 기본값
         if not state.job or state.job == "string":
             print("⚠️ [경고] 직무 정보 누락 → 기본값 '웹 개발자' 적용")
             state.job = "웹 개발자"
 
-        # ✅ 이력서 텍스트 통합
+        # 이력서 텍스트 통합
         resume_text = state.text or state.resume or ""
         if not resume_text:
             raise ValueError("❌ 이력서 텍스트가 비어 있음")
@@ -125,7 +127,7 @@ def first_question_node(state: InterviewState) -> InterviewState:
             ("system", f"""
                 당신은 면접관입니다.
                 아래 지원자의 자기소개서와 경력 여부를 바탕으로
-                면접에서 시작할 첫 번째 질문을 { '한국어' if state.Language.lower() == 'KOREAN' else '영어' }로만 자연스럽게 생성하세요.
+                면접에서 시작할 첫 번째 질문을 { '한국어' if state.Language == 'KOREAN' else '영어' }로만 자연스럽게 생성하세요.
                 - 질문은 한 문장, 명확하고 구체적으로.
                 {get_type_rule(state)}
                 {get_Language_rule(state.Language)}
@@ -134,35 +136,59 @@ def first_question_node(state: InterviewState) -> InterviewState:
                 경력 여부: {{career}}
                 지원자의 자기소개서:
                 {{resume}}
-                """)   
-                ])
+            """)
+        ])
         chain = prompt | llm
 
-        # ✅ LLM 실행
+        # LLM 실행
         print("🧠 [LLM 요청 시작]")
         response = chain.invoke({"job": state.job, "career": state.career, "resume": resume_text})
         question = response.content.strip() if hasattr(response, "content") else str(response).strip()
-
         print("📨 [생성된 질문]:", question)
         if not question:
             raise ValueError("❌ 질문 생성 실패 (빈 응답)")
 
-        # ✅ 상태 업데이트
-        state.questions.append(question)
-        save_qa_pair(question, "")
-        state.step += 1
-        # ✅ 종료 판단
-        if state.count and len(state.questions) >= state.count:
+        # 🔑 인터뷰 ID 안전 취득 (camel/snake 모두 케이스 대응)
+        interviewId = getattr(state, "interviewId", None) or getattr(state, "interviewId", None)
+        if not interviewId:
+            raise ValueError("❌ interviewId가 없습니다.(state.interviewId / state.interviewId 확인)")
+
+        # ✅ seq 설정(첫 질문이면 1)
+        seq = int(getattr(state, "seq", 0) or 1)
+        state.seq = seq
+
+        # (선택) 정말 "면접 시작 시 데이터 비우기"가 필요하면 첫 질문에서만 초기화
+        if seq == 1:
+           reset_interview(interviewId)
+
+        # ✅ 질문 저장 (필수 인자 3개 + 메타)
+        save_question(
+            interviewId,
+            seq,
+            question,
+            job=getattr(state, "job", None),
+            level=getattr(state, "level", None),
+            language=getattr(state, "Language", None) or getattr(state, "language", None),
+        )
+
+        # 상태 업데이트
+        if not getattr(state, "question", None):
+            state.question = []
+        state.question.append(question)
+
+        state.step = (getattr(state, "step", 0) or 0) + 1
+
+        # 종료 판단
+        if state.count and len(state.question) >= state.count:
             state.is_finished = True
-        elif not state.count and len(state.questions) >= 20:
+        elif not state.count and len(state.question) >= 20:
             state.is_finished = True
 
         return state
 
     except Exception as e:
         print("❌ [first_question_node 오류 발생]:", str(e))
-        import traceback
-        traceback.print_exc()
+        import traceback; traceback.print_exc()
         raise e
     
 
@@ -175,7 +201,7 @@ def answer_node(state: InterviewState) -> Union[InterviewState, None]:
         state_obj = state
 
     print("✍️ [answer_node] 사용자 답변 대기 중...")
-    print(f"❓ 현재 질문: {state_obj.questions[-1] if state_obj.questions else 'None'}")
+    print(f"❓ 현재 질문: {state_obj.question[-1] if state_obj.question else 'None'}")
     print(f"📦 [answer_node 리턴 타입]: {type(state_obj)} / 값: {state_obj}")
 
     # ❗ 답변이 없으면 FSM 종료 (나중에 이어서 실행해야 함)
@@ -183,8 +209,22 @@ def answer_node(state: InterviewState) -> Union[InterviewState, None]:
         print("🛑 [answer_node] 답변이 없어 FSM 종료 → 외부 입력 대기")
         return None
      
-    question = state_obj.questions[-1] if state_obj.questions else "질문 없음"
-    save_qa_pair(question, state_obj.last_answer)
+    question = state_obj.question[-1] if state_obj.question else "질문 없음"
+    interviewId = getattr(state_obj, "interviewId", None) or getattr(state_obj, "interviewId", None)
+    if not interviewId:
+        raise ValueError("interviewId 없음(state_obj.interviewId / interviewId 확인)")
+
+    seq = int(getattr(state_obj, "seq", 0) or 1)   # 현재 질문 번호(답변은 같은 seq로 저장)
+    ans_text = (state_obj.last_answer or "").strip()
+
+    save_answer(
+        interviewId,
+        seq,
+        ans_text,  # ← answer 본문
+        job=getattr(state_obj, "job", None),
+        level=getattr(state_obj, "level", None),
+        language=getattr(state_obj, "Language", None) or getattr(state_obj, "language", None),
+        )
 
 
     # ✅ 답변이 있는 경우: 정상 진행
@@ -218,16 +258,16 @@ def analyze_node(state: InterviewState) -> InterviewState:
         # ✅ 프롬프트 구성
         prompt = ChatPromptTemplate.from_messages([
             ("system", """
-너는 면접 평가자입니다. 아래의 답변을 분석해서 '잘한 점', '개선이 필요한 점', '점수(0~100)'를 각각 하나씩 도출하세요. 다른 말은 절대 하지말고,
-형식은 꼭 다음 JSON 형식으로만 한국어로 출력하세요. 잘한 점이 없어도 작성해주세요.:
-{{
-  "good": "잘한 점",
-  "bad": "개선이 필요한 점",
-  "score": 점수숫자
-}}
-"""),
+        너는 면접 평가자입니다. 아래의 답변을 분석해서 '잘한 점', '개선이 필요한 점', '점수(0~100)'를 각각 하나씩 도출하세요. 다른 말은 절대 하지말고,
+        형식은 꼭 다음 JSON 형식으로만 한국어로 출력하세요. 잘한 점이 없어도 잘한 점은 꼭 작성해주세요.:
+        {{
+        "good": "잘한 점",
+        "bad": "개선이 필요한 점",
+        "score": 점수숫자
+        }}
+        """),
             ("human", "답변: {answer}")
-        ])
+            ])
         chain = prompt | llm
 
         # ✅ LLM 분석 요청
@@ -262,10 +302,10 @@ def analyze_node(state: InterviewState) -> InterviewState:
 def next_question_node(state: InterviewState) -> InterviewState:
     """➡️ 다음 질문 생성 노드 (유사도 필터 포함)"""
     question_prompt = ChatPromptTemplate.from_messages([
-    ("system", f"""
+        ("system", f"""
 너는 인공지능 면접관입니다.
 지원자가 제출한 자기소개서와 직전에 한 답변을 참고하여
-다음에 이어질 면접 질문을 { '한국어' if state.Language.lower() == 'KOREAN' else '영어' }로만 생성하세요.
+다음에 이어질 면접 질문을 { '한국어' if state.Language == 'KOREAN' else '영어' }로만 생성하세요.
 
 조건:
 - 구체적이고 맥락 있는 질문
@@ -276,13 +316,14 @@ def next_question_node(state: InterviewState) -> InterviewState:
 {get_Language_rule(state.Language)}
 {get_type_rule(state)}
 """),
-    ("human", "{text}")
-])
+        ("human", "{text}")
+    ])
     try:
         if isinstance(state, dict):
             state = InterviewState(**state)
 
-        if len(state.questions) >= state.count:
+        # 종료 조건
+        if state.count and len(state.question) >= state.count:
             state.is_finished = True
             state.step += 1
             print("🏁 질문 종료")
@@ -297,6 +338,14 @@ def next_question_node(state: InterviewState) -> InterviewState:
         attempt = 0
         max_attempts = getattr(state, "retry_max", 3)
 
+        # 🔑 interviewId 확보(명세 준수) + 과거 호환
+        interviewId = getattr(state, "interviewId", None) or getattr(state, "interview_id", None)
+        if not interviewId:
+            raise ValueError("interviewId 없음(state.interviewId / interview_id 확인)")
+
+        # 현재 seq (답변 저장이 끝난 직후라면 다음 질문에서 +1 예정)
+        cur_seq = int(getattr(state, "seq", 0) or 1)
+
         while attempt < max_attempts:
             try:
                 type_rule_value = get_type_rule(state)
@@ -308,37 +357,59 @@ def next_question_node(state: InterviewState) -> InterviewState:
                 candidate_q = result.content.strip()
                 print(f"🧪 [시도 {attempt+1}] 후보 질문:", candidate_q)
 
-                # ✅ 기존 유사 질문 확인
-                similar_qas = get_similar_qa(candidate_q, k=1)
-                if not similar_qas:
-                    print("✅ 유사도 낮음 → 질문 채택")
+                # ✅ 기존 유사 질문 확인(세션 격리)
+                check = get_similar_question(
+                    interviewId=interviewId,
+                    question=candidate_q,
+                    k=5,
+                    min_similarity=0.88,
+                    verify_all=True,
+                    )
+
+                if not check["similar"]:
                     next_q = candidate_q
                     break
                 else:
-                    print("❌ 유사한 Q/A 존재 → 재시도")
+               # KNN 단계의 상위 히트가 필요하면 check["hits"] 사용
+                    top3 = ", ".join(f"{h['sim']:.3f}" for h in (check.get("hits") or [])[:3])
+                    print(f"❌ 유사 질문 존재 (sim={check['top_sim']:.3f}, via {check['method']})"
+                            + (f" | knn top3: {top3}" if top3 else "")
+                            + f" | 매칭: {(check['match'] or '')[:120]}")
                     attempt += 1
 
             except Exception as e:
                 print("⚠️ 질문 생성 실패:", str(e))
                 attempt += 1
 
-        # 🔚 재시도 실패 시 마지막 질문이라도 사용
+        # 🔚 재시도 실패 시 fallback
         if not next_q:
             next_q = candidate_q if 'candidate_q' in locals() else "방금 답변에 대해 좀 더 설명해주시겠어요?"
             print("⚠️ 재시도 실패 → 마지막 질문 사용:", next_q)
 
-        # ✅ 질문 추가 및 상태 갱신
-        state.questions.append(next_q)
-        print(f"➡️ 질문 {len(state.questions)} 생성 완료: {next_q}")
-        if state.count and len(state.questions) >= state.count:
+        # ✅ seq + 1 하고 DB에 '질문' 저장
+        state.seq = cur_seq + 1
+        save_question(
+            interviewId=interviewId,
+            seq=state.seq,
+            question=next_q,
+            job=getattr(state, "job", None),
+            level=getattr(state, "level", None),
+            language=getattr(state, "Language", None) or getattr(state, "language", None),
+        )
+
+        # 상태 갱신
+        state.question.append(next_q)
+        print(f"➡️ 질문 {len(state.question)} 생성 완료: {next_q}")
+
+        # 종료 판단
+        if state.count and len(state.question) >= state.count:
             state.is_finished = True
-        elif not state.count and len(state.questions) >= 20:
+        elif not state.count and len(state.question) >= 20:
             state.is_finished = True
-        
+
     except Exception as e:
         print("❌ [next_question_node 예외 발생]:", str(e))
-        import traceback
-        traceback.print_exc()
+        import traceback; traceback.print_exc()
         state.is_finished = True
 
     state.step += 1

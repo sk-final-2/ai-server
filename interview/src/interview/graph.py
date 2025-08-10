@@ -13,7 +13,7 @@ from interview.model import InterviewState
 
 def check_question_history(state: InterviewState) -> Literal["first", "followup"]:
     """질문 이력 유무로 분기"""
-    return "first" if len(state.questions) == 0 else "followup"
+    return "first" if len(state.question) == 0 else "followup"
 
 
 def create_graph():

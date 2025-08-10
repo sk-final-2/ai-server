@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Literal
 
 class InterviewState(BaseModel):
-    questions: List[str] = []
+    question: List[str] = []
     answer: List[str] = []
     last_analysis: Dict[str, Any] = Field(default_factory=dict) # ✅ 분석 결과를 딕셔너리로 저장
     last_answer: Optional[str] = None
