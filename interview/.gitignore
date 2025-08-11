@@ -59,3 +59,5 @@ __docker_temp__/
 # 👇 사용자 지정 폴더 (추가한 부분)
 temp/
 chroma_data/
+src/visual.py
+src/test_main.py
