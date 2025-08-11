@@ -1,31 +1,31 @@
-!pyproject.toml
-!poetry.lock
-!Dockerfile
-!src/**
-# --- VCS ---
 .git
 .gitignore
+.vscode
+.idea
 
-# --- Python 환경 ---
-.venv
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.venv
+venv
+pip-wheel-metadata/
 
-# --- Local DB / Cache ---
+# Node/front 등 있을 경우
+node_modules
+dist
+build
+
+# 런타임 데이터/캐시/임시
 chroma_data/
 temp/
-*.sqlite3
-
-# --- OS / IDE ---
-.DS_Store
-.vscode/
-.idea/
-
-# --- Node/Front (혹시 같이 있을 경우) ---
-node_modules/
-build/
-
-# --- 기타 ---
+logs/
 *.log
+cache/
+.env
+*.env
+*.tar
+*.zip
+*.mp4
+*.wav

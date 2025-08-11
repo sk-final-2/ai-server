@@ -1,58 +1,31 @@
-# syntax=docker/dockerfile:1.7
+# 1) 빌드 베이스
+FROM python:3.12-slim
 
-############################
-# 1) Builder: 의존성 휠 사전 빌드
-############################
-FROM python:3.12-slim AS builder
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    POETRY_VERSION=1.8.2
-
-# 빌드에만 필요한 것 (최종 이미지엔 X)
+# 2) 기본 패키지(필요 시 ffmpeg 등 추가)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc build-essential \
- && rm -rf /var/lib/apt/lists/*
+    ffmpeg git && \
+    rm -rf /var/lib/apt/lists/*
 
+# 3) 워크디렉토리
 WORKDIR /app
 
-# Poetry 설치 및 요구사항 export
-RUN pip install "poetry==$POETRY_VERSION"
-COPY pyproject.toml poetry.lock ./
-RUN poetry export -f requirements.txt --without-hashes -o requirements.txt
+# 4) 의존성 먼저 복사/설치 (캐시 최적화)
+COPY pyproject.toml poetry.lock* requirements.txt* ./
+# Poetry 쓰면:
+# RUN pip install --no-cache-dir poetry && poetry config virtualenvs.create false && poetry install --no-interaction --no-ansi
+# requirements.txt 쓰면:
+RUN if [ -f "requirements.txt" ]; then pip install --no-cache-dir -r requirements.txt; fi
 
-# wheel 미리 빌드 (최종 이미지는 여기서만 복사)
-RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+# 5) 앱 코드 복사
+COPY . .
 
-############################
-# 2) Runtime: 최소 런타임만
-############################
-FROM python:3.12-slim AS runtime
+# 6) 런타임 환경변수(영속 경로: 볼륨으로 연결)
+ENV CHROMA_DIR=/app/chroma_data \
+    PYTHONUNBUFFERED=1
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+# 7) 영속 디렉토리 생성(이미지 안에서는 빈 폴더만 유지)
+RUN mkdir -p ${CHROMA_DIR}
 
-# 런타임에 꼭 필요한 것만 (ffmpeg 등)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
- && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-# 의존성 설치 (Poetry X, 캐시 X)
-COPY --from=builder /wheels /wheels
-COPY --from=builder /app/requirements.txt .
-RUN pip install --no-index --find-links=/wheels -r requirements.txt \
- && rm -rf /wheels
-
-# 앱 소스만 복사 (불필요한 파일은 .dockerignore로 제외)
-COPY src/ ./src/
-#COPY src/main.py . 
-# 비루트 유저
-RUN useradd -m appuser
-USER appuser
-
+# 8) 포트/엔트리포인트
 EXPOSE 8001
 CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001", "--app-dir", "src"]

@@ -1,11 +1,10 @@
 # interview/chroma_setup.py  (SLIM)
-import os, pathlib
+import os
 import chromadb
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
 # 🔧 저장 경로
-ROOT = pathlib.Path(__file__).resolve().parents[2]  # 프로젝트 루트(/app)
-PERSIST_PATH = os.getenv("CHROMA_DIR", str(ROOT / "chroma_data"))
+CHROMA_DIR = os.getenv("CHROMA_DIR", "/app/chroma_data"))
 
 # 🔧 디바이스: "cpu" 또는 "cuda"
 DEVICE = os.getenv("EMBED_DEVICE", "cpu")
