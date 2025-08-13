@@ -31,12 +31,16 @@ emotion_kor_map = {
     "happy": "행복"
 }
 
+def sec_to_hhmmss(sec: int) -> str:
+    m = (sec % 3600) // 60
+    s = sec % 60
+    return f"{m:02d}:{s:02d}"
 
 @app.post("/analyze")
 async def analyze_emotion(
     file: UploadFile = File(...),
     interviewId: str = Form(...),
-    seq: int = Form(...)
+    seq: int = Form(...),
 ):
     # 1. 파일 저장
     temp_filename = f"temp_{uuid.uuid4()}.mp4"
@@ -74,28 +78,37 @@ async def analyze_emotion(
                 sorted_emotions = sorted(emotions.items(), key=lambda x: x[1], reverse=True)
                 top1, top2 = sorted_emotions[0][0], sorted_emotions[1][0]
                 per_second_emotions[second].append((top1, top2))
-                print(f"[{second}초] 감정 분석 결과 → 1위: {top1}, 2위: {top2}")
-            except Exception as e:
+            except Exception:
                 continue
 
     cap.release()
     os.remove(temp_filename)
 
-    # 3. 초당 감정 집계 → 가장 많이 나온 감정만 1초에 1번 반영
+    # 3. 초당 감정 집계 → 1초에 대표 감정 1개만 반영
     emotion_counter = Counter()
     total_penalty = 0
+    penalty_timestamps = []  # 감점 발생 초 기록
 
     for second, pairs in per_second_emotions.items():
-        top1_list = [top1 for top1, _ in pairs]  # top1 감정만 추출
-        if top1_list:
-            most_common_emotion, _ = Counter(top1_list).most_common(1)[0]
-            emotion_counter[most_common_emotion] += 1
-            total_penalty += emotion_penalty_map.get(most_common_emotion, 0)
+        top1_list = [top1 for top1, _ in pairs]
+        if not top1_list:
+            continue
+
+        most_common_emotion, _ = Counter(top1_list).most_common(1)[0]
+        emotion_counter[most_common_emotion] += 1
+        penalty = emotion_penalty_map.get(most_common_emotion, 0)
+        total_penalty += penalty
+
+        # 감점이 1점 이상인 경우에만 timestamp에 기록
+        if penalty > 0:
+            penalty_timestamps.append({
+                "time": sec_to_hhmmss(second),
+                "reason": "표정 감지"
+            })
 
     # 4. 최종 점수 계산
     final_score = max(0, 100 - total_penalty)
 
-    # 5. 설명 메시지 생성
     # 5. 설명 메시지 생성 (모든 감정 포함)
     all_emotion_parts = []
     for emo, count in emotion_counter.items():
@@ -109,10 +122,12 @@ async def analyze_emotion(
         )
     else:
         message = f"표정 감지 분석 결과: 감정 인식 실패, 점수는 {round(final_score, 2)}점입니다!"
-    # 6. 결과 반환
+
+    # 6. 결과 반환 (timestamp 추가)
     return {
         "interviewId": interviewId,
         "seq": seq,
         "score": round(final_score, 2),
-        "text": message
+        "text": message,
+        "timestamp": penalty_timestamps
     }
