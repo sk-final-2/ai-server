@@ -4,6 +4,7 @@ import time
 from collections import deque, Counter
 from src.blink_detection.FaceMeshModule import FaceMeshGenerator
 from src.blink_detection.utils import DrawingUtils
+from src.utils.common import sec_to_timestamp
 
 class BlinkCounterVideo:
     # 눈의 EAR(Eye Aspect Ratio) 계산에 사용할 랜드마크 인덱스
@@ -23,7 +24,9 @@ class BlinkCounterVideo:
         self.blink_limit_10s = blink_limit_10s # 10초 동안 허용되는 최대 깜빡임 횟수
         self.penalty_per_excess = penalty_per_excess # 위반 시 감점 점수
         self.blink_violations = [] # 위반 기록 저장
-        self.last_violation_time = 0  # 직전 위반 체크 시각
+        # self.last_violation_time = 0  # 직전 위반 체크 시각
+        self.last_violation_time = -1e9   # 마지막 위반 기록된 t_sec
+        self.events = []                  # [{"time": float, "reason": str}, ...]
 
     def eye_aspect_ratio(self, eye_landmarks, landmarks):
         """
@@ -110,29 +113,39 @@ class BlinkCounterVideo:
         blink_score = max(0, 100 - penalty)
 
         return blink_score, reasons_kor_text, penalty, total_violations
+    
+    def sec_to_timestamp(sec: float) -> str:
+        s = int(sec)
+        m, s = divmod(s, 60)
+        return f"{m:02d}:{s:02d}"
 
-    def process(self, landmarks):
+    def process(self, landmarks, t_sec: float):
         right_ear = self.eye_aspect_ratio(self.RIGHT_EYE_EAR, landmarks)
         left_ear = self.eye_aspect_ratio(self.LEFT_EYE_EAR, landmarks)
         ear = (right_ear + left_ear) / 2.0
         self.update_blink_count(ear)
 
-        current_time = time.time()
-        while self.blink_timestamps and current_time - self.blink_timestamps[0] > 10:
+        current_wall = time.time()
+        while self.blink_timestamps and current_wall - self.blink_timestamps[0] > 10:
             self.blink_timestamps.popleft()
 
-        if len(self.blink_timestamps) > self.blink_limit_10s and current_time - self.last_violation_time > 10:
+        if len(self.blink_timestamps) > self.blink_limit_10s and (t_sec - self.last_violation_time) > 10:
             self.blink_violations.append("과도한 깜빡임")
-            self.last_violation_time = current_time
+            self.last_violation_time = t_sec
+            self.events.append({
+                "time": sec_to_timestamp(t_sec),
+                "reason": "눈 깜빡임"
+            })
 
     def get_result(self):
         if not self.blink_violations:
-            return {"score": 100, "penalty": 0, "reasons": []}
+            return {"score": 100, "penalty": 0, "reasons": [], "events": self.events}
 
         reason_counts = Counter(self.blink_violations)
         penalty = len(self.blink_violations) * self.penalty_per_excess
         return {
             "score": max(0, 100 - penalty),
             "penalty": penalty,
-            "reasons": [f"{reason} {count}회" for reason, count in reason_counts.items()]
+            "reasons": [f"{reason} {count}회" for reason, count in reason_counts.items()],
+            "events": self.events
         }

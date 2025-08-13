@@ -5,6 +5,7 @@ from collections import Counter
 from src.blink_detection.FaceMeshModule import FaceMeshGenerator
 import pickle
 import os
+from src.utils.common import sec_to_timestamp
 class GazeDirectionVideo:
     LEFT_EYE_LANDMARKS = [33, 133]
     RIGHT_EYE_LANDMARKS = [362, 263]
@@ -19,10 +20,17 @@ class GazeDirectionVideo:
         "LOOK_DOWN": "위쪽 응시"
     }
 
-    def __init__(self, penalty_per_violation=10, stable_frames_required=5):
+    def __init__(self, penalty_per_violation=10, stable_frames_required=5, cooldown_secs=2.0):
         self.penalty_per_violation = penalty_per_violation
         self.stable_frames_required = stable_frames_required
+        self.cooldown_secs = cooldown_secs
         self.violations = []
+        self.events = []
+
+        # 방향 안정화/중복 방지용 상태
+        self.current_dir = "FORWARD"
+        self.consec_count = 0
+        self.last_event_time_sec = -1e9  # 마지막 이벤트 발생 시각(초)
 
         BASE_DIR = os.path.dirname(__file__)
         MODEL_PATH = os.path.join(BASE_DIR, "..", "head_detection", "model.pkl")
@@ -95,17 +103,47 @@ class GazeDirectionVideo:
         else:
             return "FORWARD"
 
-    def process(self, landmarks, w, h):
+    def process(self, landmarks, w, h, t_sec: float):
         pitch, yaw, roll = self.predict_head_pose(landmarks)
-        if self.is_head_forward(pitch, yaw, roll):
-            gaze_dir = self.get_gaze_direction(landmarks, w, h)
-            if gaze_dir != "FORWARD":
-                if len(self.violations) == 0 or self.violations[-1] != gaze_dir:
-                    self.violations.append(gaze_dir)
+
+        # '정면'일 때만 시선판정 (고개가 돌아가면 시선 무시)
+        if not self.is_head_forward(pitch, yaw, roll):
+            # 정면 아니면 상태 초기화(원하면 유지해도 됨)
+            self.current_dir = "FORWARD"
+            self.consec_count = 0
+            return
+
+        gaze_dir = self.get_gaze_direction(landmarks, w, h)
+
+        # 현재 방향 안정화(연속 stable_frames_required 프레임 유지 시 '확정')
+        if gaze_dir == self.current_dir:
+            self.consec_count += 1
+        else:
+            self.current_dir = gaze_dir
+            self.consec_count = 1
+
+        # 이벤트/위반 기록 조건:
+        # - 정면 아님
+        # - 방향이 stable_frames_required 프레임 이상 유지
+        # - 마지막 이벤트 이후 cooldown_secs 경과
+        if (self.current_dir != "FORWARD" and
+            self.consec_count >= self.stable_frames_required and
+            (t_sec - self.last_event_time_sec) >= self.cooldown_secs):
+
+            self.violations.append(self.current_dir)  # 점수 계산용
+            self.last_event_time_sec = t_sec
+
+            self.events.append({
+                "time": sec_to_timestamp(t_sec),
+                "reason": f"시선처리"
+            })
 
     def get_result(self):
+        if not self.violations:
+            return {"score": 100, "penalty": 0, "reasons": [], "events": self.events}
+
         reason_counts = Counter(self.violations)
-        penalty = len(self.violations) * self.penalty_per_violation
+        penalty = sum(reason_counts.values()) * self.penalty_per_violation
         reasons = [
             f"{self.REASON_TRANSLATIONS.get(reason, reason)} {count}회"
             for reason, count in reason_counts.items()
@@ -113,5 +151,6 @@ class GazeDirectionVideo:
         return {
             "score": max(0, 100 - penalty),
             "penalty": penalty,
-            "reasons": reasons
+            "reasons": reasons,
+            "events": self.events
         }

@@ -59,7 +59,7 @@ def run_all_analyses(video_path):
 
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
 
     generator = FaceMeshGenerator()
     blink = BlinkCounterVideo()
@@ -88,56 +88,77 @@ def run_all_analyses(video_path):
         min_tracking_confidence=0.5
     )
 
+    frame_idx = 0
     while True:
         ret, frame = cap.read()
         if not ret:
             break
+        
+        t_sec = frame_idx / fps  # ← 현재 영상 진행 초
+        frame_idx += 1
+
         frame, landmarks_xy = generator.create_face_mesh(frame, draw=False)
+
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         face_results = face_mesh.process(rgb)
         if not face_results.multi_face_landmarks:
             continue
+
         landmarks_obj = face_results.multi_face_landmarks[0].landmark
+
         hand_results = hands.process(rgb)
         hand_lms = hand_results.multi_hand_landmarks if hand_results.multi_hand_landmarks else None
 
-        blink.process(landmarks_xy)
-        gaze.process(landmarks_obj, w, h)
-        face_touch.process(landmarks_xy, hand_lms, w, h)
-        head_pose.process(landmarks_obj)
+        blink.process(landmarks_xy, t_sec)
+        gaze.process(landmarks_obj, w, h, t_sec)
+        face_touch.process(landmarks_xy, hand_lms, w, h, t_sec)
+        head_pose.process(landmarks_obj, t_sec)
 
     cap.release()
+    # 리소스 정리
+    face_mesh.close()
+    hands.close()
     cv2.destroyAllWindows()
 
-    total_score = 0
-    num_criteria = 0
-    text_summary = ""
+    # 모듈별 결과 수집
+    blink_res = blink.get_result()
+    gaze_res  = gaze.get_result()
+    head_res  = head_pose.get_result()
+    hand_res  = face_touch.get_result()
 
-    for analyzer, description in [
-        (blink, "눈 깜빡임 감지 분석 결과"),
-        (gaze, "시선처리 감지 분석 결과"),
-        (head_pose, "고개 각도 감지 분석 결과"),
-        (face_touch, "손 움직임 감지 분석 결과"),
-    ]:
-        result = analyzer.get_result()
-        score = result['score']
-        penalty = result['penalty']
-        reasons = result['reasons']
+    # 텍스트 요약
+    def summarize(name, r):
+        if r["reasons"]:
+            return f"{name}: {', '.join(r['reasons'])}로 인해 감점 {r['penalty']}점, 점수는 {r['score']}점입니다!"
+        return f"{name}: 감점 없이 만점입니다! 점수는 {r['score']}점입니다!"
 
-        total_score += score
-        num_criteria += 1
+    text_summary = "\n".join([
+        summarize("눈 깜빡임 감지 분석 결과", blink_res),
+        summarize("시선처리 감지 분석 결과",   gaze_res),
+        summarize("고개 각도 감지 분석 결과", head_res),
+        summarize("손 움직임 감지 분석 결과", hand_res),
+    ])
 
-        if reasons:
-            reasons_text = ", ".join(reasons)
-            text_summary += f"{description}: {reasons_text}로 인해 감점 {penalty}점, 점수는 {score}점입니다!\n"
-        else:
-            text_summary += f"{description}: 감점 없이 만점입니다! 점수는 {score}점입니다!\n"
+    # 타임스탬프 병합
+    timestamps = []
+    timestamps.extend(blink_res.get("events", []))
+    timestamps.extend(gaze_res.get("events", []))
+    timestamps.extend(head_res.get("events", []))
+    timestamps.extend(hand_res.get("events", []))
 
-    average_score = round(total_score / num_criteria) if num_criteria > 0 else 0
+    # 정렬(시간순)
+    def key_ts(e):  # "MM:SS" → 초로 변환
+        mm, ss = e["time"].split(":")
+        return int(mm) * 60 + int(ss)
+    timestamps.sort(key=key_ts)
 
     return {
-        "score": average_score,
-        "text": text_summary.strip()
+        "text": text_summary.strip(),
+        "blinkScore": blink_res["score"],
+        "eyeScore":   gaze_res["score"],
+        "headScore":  head_res["score"],
+        "handScore":  hand_res["score"],
+        "timestamp":  timestamps
     }, None
 
 
@@ -164,8 +185,12 @@ async def analyze_tracking(
         return {
             "interviewId": interviewId,
             "seq": seq,
-            "score": result["score"],
-            "text": result["text"]
+            "text": result["text"],
+            "blinkScore": result["blinkScore"],
+            "eyeScore": result["eyeScore"],
+            "headScore": result["headScore"],
+            "handScore": result["handScore"],
+            "timestamp": result["timestamp"]
         }
 
     except Exception as e:
