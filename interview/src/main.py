@@ -101,13 +101,14 @@ async def stt_ask(
     file: UploadFile = File(...),
     interviewId: str = Form(...),
     seq: int | None = Form(None),   # ← 하위 호환용(무시)
+    question: str = Form(None),     # ✅ (옵션) 동적 모드용 질문
 ):
-    # 1) 세션
+    # 1) 세션 불러오기
     state = session_state.get(interviewId)
     if not state:
         raise HTTPException(status_code=404, detail="면접 세션이 없습니다. /first-ask를 먼저 호출하세요.")
 
-    # 2) 저장/변환/STT
+    # 2) 파일 저장 + STT 변환
     ext = (file.filename or "uploaded").split(".")[-1].lower()
     if ext not in ["mp4", "webm", "wav", "m4a", "mp3"]:
         raise HTTPException(status_code=400, detail="지원하지 않는 파일 형식입니다.")
@@ -120,27 +121,33 @@ async def stt_ask(
     raw = transcribe_audio(wav_path)
     corrected = correct_transcript(raw) or raw
 
-    # 3) 답변만 반영 (증가는 그래프 내부)
+    # 3) 답변 업데이트 (→ DB 저장은 answer_node에서 처리됨)
     state.last_answer = corrected
     if not hasattr(state, "answer"):
         state.answer = []
     state.answer.append(corrected)
 
-    # 4) 그래프 실행
+    # ✅ 3-1) 동적 모드(count=0)일 때만 임시 질문 보관
+    if getattr(state, "count", 0) == 0 and question:
+        # DB에는 저장하지 않고, state에만 임시 저장
+        state.last_question_for_dynamic = question
+        print(f"📝 [stt-ask] 동적 모드용 질문 저장: {question}")
+
+    # 4) 그래프 실행 (분석 → keepgoing → next_question)
     result = graph_app.invoke(state.model_dump())
     if isinstance(result, dict):
         result = InterviewState(**result)
 
     session_state[interviewId] = result
 
-    # 5) 출력용 seq & 종료
+    # 5) 출력용 seq & 종료 여부
     seq_out = getattr(result, "step", None)
     if seq_out is None:
         seq_out = getattr(result, "seq", None)
     if seq_out is None:
         seq_out = 1
 
-    analysis = getattr(result, "last_analysis", {}) or {}
+    analysis = result.last_analysis if hasattr(result, "last_analysis") else {}
 
     return {
         "interviewId": interviewId,
@@ -150,5 +157,5 @@ async def stt_ask(
         "interview_answer_bad": analysis.get("bad", ""),
         "score": analysis.get("score", 0),
         "new_question": result.question[-1] if getattr(result, "question", None) else "",
-        "keepGoing": getattr(result, "keepGoing", True)  # ✅ 계속 진행 여부
-        }
+        "keepGoing": getattr(result, "keepGoing", True)
+    }

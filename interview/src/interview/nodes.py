@@ -8,6 +8,7 @@ import os, json, re
 from utils.question_filter import is_redundant
 from interview.question_bank import ASPECTS, FALLBACK_POOL
 from dotenv import load_dotenv
+from interview.predict_keepGoing import keepGoing
 
 load_dotenv("src/interview/.env")
 
@@ -192,7 +193,7 @@ def get_language_rule(lang: str):
         return ""
 
 #---------------------------------------------------------------------------------------------------------------------------------
-def router_node(state: InterviewState) -> str:
+#def router_node(state: InterviewState) -> str:
     if not state.answer:
         print("🧭 [router_node] 첫 질문 생성 흐름")
         return "first_question"
@@ -225,6 +226,53 @@ def set_options_node(state: InterviewState) -> InterviewState:
     state.options_locked = True
     print(f"✅ 최종 language: {state.language}, level: {state.level}, count: {state.count}, interviewType: {state.interviewType}")
     return state
+
+def keepGoing_node(state: InterviewState) -> Union[InterviewState, None]:
+    """count=0일 때 KoELECTRA + LLM 보조로 종료 여부 판단"""
+    if isinstance(state, dict):
+        state = InterviewState(**state)
+
+    # count>0이면 그냥 통과
+    if getattr(state, "count", None) != 0:
+        print("➡️ [keepGoing_node] count>0 → 그대로 통과")
+        return state
+
+    # ✅ 동적 모드일 때 질문 선택 (임시 저장된 질문 > 기존 질문)
+    question = getattr(state, "last_question_for_dynamic", None)
+    if not question:
+        question = state.question[-1] if getattr(state, "question", None) else ""
+
+    answer = state.last_answer or ""
+
+    try:
+        # 1차: KoELECTRA 분류
+        label = keepGoing(question, answer)
+        if label == "terminate":
+            print("🔎 [keepGoing_node] KoELECTRA 종료 예측 → LLM 확인")
+
+            # 2차: LLM 보조 확인
+            if _should_stop_dynamic(state):
+                print("🛑 [keepGoing_node] LLM도 종료 확인 → FSM 종료")
+                state.keepGoing = False
+                return None
+            else:
+                print("⚠️ [keepGoing_node] KoELECTRA는 종료 예측했지만, LLM은 계속 진행")
+                state.keepGoing = True
+                return state
+        else:
+            print("✅ [keepGoing_node] KoELECTRA 계속 진행 예측")
+            state.keepGoing = True
+            return state
+
+    except Exception as e:
+        print("⚠️ [keepGoing_node 오류] 예외 발생 → 계속 진행:", e)
+        state.keepGoing = True
+        return state
+
+    finally:
+        # ✅ 한 번 쓰고 버리기 → 다음 루프에 영향 안 주도록 제거
+        if hasattr(state, "last_question_for_dynamic"):
+            delattr(state, "last_question_for_dynamic")
 
 def build_prompt(state: InterviewState):
     lang_sys = "한국어로 질문하세요." if state.language == "KOREAN" else "Ask in English."
@@ -471,16 +519,6 @@ def analyze_node(state: InterviewState) -> InterviewState:
         import traceback
         traceback.print_exc()
         state.last_analysis = {"comment": f"분석 중 오류 발생: {str(e)}"}
-    cnt = int(getattr(state, "count", 0) or 0)
-    if cnt == 0:
-        if _should_stop_dynamic(state):
-            state.keepGoing = False
-            print("🛑 [동적 종료] LLM 판단으로 종료")
-        elif int(getattr(state, "seq", 0) or 1) >= DYN_HARD_CAP:
-            state.keepGoing = False
-            print("🛑 [동적 종료] 하드 캡 도달로 종료")
-        else:
-            state.keepGoing = True
     return state
 
 

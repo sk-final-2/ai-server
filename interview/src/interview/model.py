@@ -13,6 +13,7 @@ class InterviewState(BaseModel):
     job: Optional[str] = None
     career: Optional[str] = None
     resume: str = ""
+    last_question_for_dynamic: Optional[str] = None
     interviewId: Optional[str] = None  # ✅ 유지
     language: Literal["KOREAN","ENGLISH"] = "KOREAN"    # ✅ 유지
     level: Literal["상","중","하"] = "중"
