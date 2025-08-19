@@ -1,10 +1,14 @@
 # interview/chroma_setup.py  (SLIM)
 import os
 import chromadb
+from pathlib import Path
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
 # 🔧 저장 경로
-PERSIST_PATH = r"C:\LangChain\ddong\ai-server\interview\chroma_data"
+# 🔧 영속 경로: 환경변수 없으면 로컬 ./chroma_data 사용
+CHROMA_DIR = os.getenv("CHROMA_DIR", "/app/chroma_data")
+CHROMA_DIR = str(Path(CHROMA_DIR))          # 경로 정규화
+Path(CHROMA_DIR).mkdir(parents=True, exist_ok=True)  # 폴더 보장
 
 # 🔧 디바이스: "cpu" 또는 "cuda"
 DEVICE = os.getenv("EMBED_DEVICE", "cpu")
@@ -16,7 +20,7 @@ EF = SentenceTransformerEmbeddingFunction(
     # normalize_embeddings=True  # chromadb 버전에 따라 옵션 존재
 )
 
-_client = chromadb.PersistentClient(path=PERSIST_PATH)
+_client = chromadb.PersistentClient(path=CHROMA_DIR)
 
 def get_collections():
     """앱에서 쓸 컬렉션 핸들만 반환 (질문/답변=임베딩, 피드백=키값)"""

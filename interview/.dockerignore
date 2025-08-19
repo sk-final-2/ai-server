@@ -1,31 +1,48 @@
-!pyproject.toml
-!poetry.lock
-!Dockerfile
-!src/**
-# --- VCS ---
+# ===== Git/IDE =====
 .git
 .gitignore
+.vscode
+.idea
 
-# --- Python 환경 ---
-.venv
+# ===== Python 캐시/가상환경 =====
 __pycache__/
 *.pyc
 *.pyo
-*.pyd
+.venv/
+venv/
 
-# --- Local DB / Cache ---
-chroma_data/
-temp/
-*.sqlite3
-
-# --- OS / IDE ---
-.DS_Store
-.vscode/
-.idea/
-
-# --- Node/Front (혹시 같이 있을 경우) ---
+# ===== 빌드에 불필요 (없어도 안전) =====
 node_modules/
+dist/
 build/
 
-# --- 기타 ---
+# ===== 런타임 데이터/캐시(이미지에 포함 금지) =====
+chroma_data/
+.cache/
+root/.cache/
+hf_cache/
+
+# ===== src 내부 대용량/민감/임시 =====
+src/interview/.env
+src/stt/temp/
+src/**/__pycache__/
+
+# ===== 로그/임시 =====
+temp/
+logs/
 *.log
+
+# ===== 아카이브/대형파일(혹시 있을 경우) =====
+*.tar
+*.zip
+*.mp4
+*.wav
+*.bin
+*.pt
+*.onnx
+*.ckpt
+*.pt
+*.safetensors
+# ===== 테스트 =====
+tests/
+test_*.py

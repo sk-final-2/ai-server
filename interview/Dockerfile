@@ -1,28 +1,51 @@
-# Python 3.12 슬림 이미지 기반
-FROM python:3.12-slim
-
-# 시스템 패키지 설치 (ffmpeg 포함)
-RUN apt-get update && \
-    apt-get install -y ffmpeg gcc && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Poetry 설치
-ENV POETRY_VERSION=1.8.2
-RUN pip install "poetry==$POETRY_VERSION"
-
-# 작업 디렉토리 설정
+# ========= builder =========
+FROM python:3.12-slim AS builder
 WORKDIR /app
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# pyproject.toml, poetry.lock 복사 후 의존성 설치
-COPY pyproject.toml poetry.lock ./
-RUN poetry install --no-root
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# 앱 소스 복사
-COPY . .
+COPY pyproject.toml poetry.lock* ./
+RUN pip install --no-cache-dir poetry poetry-plugin-export \
+ && poetry export -f requirements.txt --without-hashes --only main -o /app/requirements.txt
 
-# 포트 오픈
+# torch/torchvision/torchaudio만 CPU 인덱스에서 분리
+RUN awk '/^[[:space:]]*torch([=<> ]|$)/      {print > "/app/torch-req.txt"; next} \
+         /^[[:space:]]*torchvision([=<> ]|$)/{print > "/app/torch-req.txt"; next} \
+         /^[[:space:]]*torchaudio([=<> ]|$)/ {print > "/app/torch-req.txt"; next} \
+         {print > "/app/req-notorch.txt"}' /app/requirements.txt
+
+RUN pip wheel --no-cache-dir --prefer-binary -r /app/req-notorch.txt -w /wheels
+RUN if [ -s /app/torch-req.txt ]; then \
+      pip wheel --no-cache-dir --prefer-binary \
+        --index-url https://download.pytorch.org/whl/cpu \
+        -r /app/torch-req.txt -w /wheels ; \
+    fi
+
+RUN echo "=== WHEELS ===" && ls -l /wheels
+
+# ========= runtime =========
+FROM python:3.12-slim
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app/src
+
+# ffmpeg 설치 (ffprobe 포함) + torchaudio가 쓰는 OpenMP 런타임
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ffmpeg libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 휠 + 요구사항 복사
+COPY --from=builder /wheels /wheels
+COPY --from=builder /app/requirements.txt /app/requirements.txt
+
+# 오프라인 설치(휠만 사용)
+RUN python -m pip install --upgrade pip \
+ && pip install --no-cache-dir --no-index --find-links=/wheels -r /app/requirements.txt -v \
+ && pip cache purge
+
+# 앱 소스
+COPY src/ /app/src
+
 EXPOSE 8001
-
-# FastAPI 앱 실행
-CMD ["poetry", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001", "--app-dir", "src"]
+CMD ["uvicorn","main:app","--app-dir","/app/src","--host","0.0.0.0","--port","8001"]
