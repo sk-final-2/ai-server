@@ -16,15 +16,46 @@ class FaceTouchDetectorVideo:
         self.frame_threshold = int(fps * 0.5)
 
     def detect_face_touch(self, face_landmarks, hand_landmarks, w, h) -> bool:
+        """
+        1단계: 얼굴/손 바운딩박스가 겹치는지 빠르게 검사 (겹치지 않으면 즉시 False)
+        2단계: 겹칠 때만 세밀 최소거리 계산
+        """
         if not face_landmarks or not hand_landmarks:
             return False
+        
+        # --- 얼굴 bbox (pad로 여유를 줘서 민감도 확보) ---
+        xs = [pt[0] for pt in face_landmarks.values()]
+        ys = [pt[1] for pt in face_landmarks.values()]
+        fx1, fy1, fx2, fy2 = min(xs), min(ys), max(xs), max(ys)
+        pad = 30
+        fx1 -= pad; fy1 -= pad; fx2 += pad; fy2 += pad
 
-        face_points = np.array([[pt[0], pt[1]] for pt in face_landmarks.values()])
+        face_points = None
+
         for hand in hand_landmarks:
-            hand_points = np.array([[lm.x * w, lm.y * h] for lm in hand.landmark])
-            dmin = np.min(np.linalg.norm(face_points[None, :, :] - hand_points[:, None, :], axis=2), axis=1)
-            if np.any(dmin < 40):
+            # 손 bbox
+            hx = [lm.x * w for lm in hand.landmark]
+            hy = [lm.y * h for lm in hand.landmark]
+            hx1, hy1, hx2, hy2 = min(hx), min(hy), max(hx), max(hy)
+
+            # 빠른 충돌 검사: bbox가 안 겹치면 스킵
+            if hx2 < fx1 or hx1 > fx2 or hy2 < fy1 or hy1 > fy2:
+                continue
+
+            # 여기서만 세밀 최소거리 계산
+            if face_points is None:
+                face_points = np.array([[pt[0], pt[1]] for pt in face_landmarks.values()])  # (F,2)
+
+            hand_points = np.array([[x, y] for x, y in zip(hx, hy)], dtype=float)  # (H,2)
+
+            # 모든 조합 최소거리 (H x F)
+            diffs = face_points[None, :, :] - hand_points[:, None, :]
+            dists = np.linalg.norm(diffs, axis=2)
+            dmin = np.min(dists)
+
+            if dmin < 40:
                 return True
+            
         return False
 
     def process(self, face_landmarks, hand_landmarks, w, h, t_sec: float):
