@@ -2,7 +2,6 @@ import cv2 as cv
 import mediapipe as mp
 import numpy as np
 from collections import Counter
-from src.blink_detection.FaceMeshModule import FaceMeshGenerator
 import pickle
 import os
 from src.utils.common import sec_to_timestamp

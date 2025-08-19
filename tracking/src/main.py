@@ -7,7 +7,6 @@ from src.blink_detection.blink_detection import BlinkCounterVideo
 from src.gaze_detection.gaze_detection import GazeDirectionVideo
 from src.hand_detection.hand_detection import FaceTouchDetectorVideo
 from src.head_detection.head_detection import HeadPoseVideo
-from src.blink_detection.FaceMeshModule import FaceMeshGenerator
 import tempfile
 import shutil
 import os
@@ -51,7 +50,6 @@ def measure_center(cap, model, predictor_func, calibrate_func, label=""):
             total_roll / count
         )
 
-
 def run_all_analyses(video_path):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -61,7 +59,6 @@ def run_all_analyses(video_path):
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
 
-    generator = FaceMeshGenerator()
     blink = BlinkCounterVideo()
     gaze = GazeDirectionVideo()
     face_touch = FaceTouchDetectorVideo()
@@ -88,6 +85,9 @@ def run_all_analyses(video_path):
         min_tracking_confidence=0.5
     )
 
+    hands_every = 3           # ← 2~3 권장
+    last_hand_res = None      # ← 최근 결과 캐시
+
     frame_idx = 0
     while True:
         ret, frame = cap.read()
@@ -97,8 +97,7 @@ def run_all_analyses(video_path):
         t_sec = frame_idx / fps  # ← 현재 영상 진행 초
         frame_idx += 1
 
-        frame, landmarks_xy = generator.create_face_mesh(frame, draw=False)
-
+        # FaceMesh 1회
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         face_results = face_mesh.process(rgb)
         if not face_results.multi_face_landmarks:
@@ -106,8 +105,16 @@ def run_all_analyses(video_path):
 
         landmarks_obj = face_results.multi_face_landmarks[0].landmark
 
-        hand_results = hands.process(rgb)
-        hand_lms = hand_results.multi_hand_landmarks if hand_results.multi_hand_landmarks else None
+        # float 좌표 (소수점 유지 → EAR 노이즈 급감)
+        landmarks_xy = {i: (landmarks_obj[i].x * w, landmarks_obj[i].y * h)
+                for i in range(len(landmarks_obj))}
+
+         # --- Hands 저주기 처리 + 결과 재사용 ---
+        if (frame_idx % hands_every) == 0:
+            last_hand_res = hands.process(rgb)
+        # 이전 프레임 결과 재사용
+        hand_lms = (last_hand_res.multi_hand_landmarks
+                    if (last_hand_res and last_hand_res.multi_hand_landmarks) else None)
 
         blink.process(landmarks_xy, t_sec)
         gaze.process(landmarks_obj, w, h, t_sec)
