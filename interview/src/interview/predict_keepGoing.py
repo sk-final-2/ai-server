@@ -24,7 +24,6 @@ def keepGoing(question: str, answer: str) -> str:
         probs = torch.softmax(outputs.logits, dim=-1)
         predicted_class = torch.argmax(probs, dim=-1).item()
 
-    if labels[predicted_class] == "continue":
-        return True
-    else:
-        return False
+    print(f"예측 결과: {labels[predicted_class]}")
+    
+    return labels[predicted_class]

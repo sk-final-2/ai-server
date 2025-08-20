@@ -12,53 +12,64 @@ from interview.predict_keepGoing import keepGoing
 
 load_dotenv("src/interview/.env")
 
-DYN_MIN_SEQ = int(os.getenv("DYN_MIN_SEQ", "4"))     # 최소 N문항은 진행
+DYN_MIN_SEQ = int(os.getenv("DYN_MIN_SEQ", "3"))     # 최소 N문항은 진행
 DYN_HARD_CAP = int(os.getenv("DYN_HARD_CAP", "20"))  # 동적 모드 최대 문항
 
 def _should_stop_dynamic(state: InterviewState) -> bool:
     """count==0인 경우에만 호출: 충분히 평가 완료면 True."""
     seq = int(getattr(state, "seq", 0) or 1)
-    if seq >= DYN_HARD_CAP:
+    
+    print(f'♥{seq}')
+    # 1) 최대치 넘으면 무조건 종료
+    if seq > DYN_HARD_CAP:
         return True
-    if seq < DYN_MIN_SEQ:
-        return False
+    
+    # 2) 최소치 넘으면 LLM한테 물어보기
+    if seq >= DYN_MIN_SEQ:
+        # last_q = (state.question[-1] if getattr(state, "question", None) else "") or ""
+        # ans = state.last_answer or (state.answer[-1] if state.answer else "") or ""
+        # la = getattr(state, "last_analysis", {}) or {}
+        # good, bad, score = la.get("good", ""), la.get("bad", ""), la.get("score", 0)
 
-    last_q = (state.question[-1] if getattr(state, "question", None) else "") or ""
-    ans = state.last_answer or (state.answer[-1] if state.answer else "") or ""
-    la = getattr(state, "last_analysis", {}) or {}
-    good, bad, score = la.get("good", ""), la.get("bad", ""), la.get("score", 0)
+        # if getattr(state, "language", "KOREAN") == "ENGLISH":
+        #     sys_msg = (
+        #         'Decide whether to end the interview now. '
+        #         'You must output exactly {{"stop": true}} or {{"stop": false}}, only one of the two. '
+        #         'Do not include any other text, explanations, quotes, or comments.'
+        #     )
+        #     user_msg = (
+        #         "last_question: {q}\nlast_answer: {a}\nanalysis.good: {g}\nanalysis.bad: {b}\nscore: {s}\n"
+        #         "Return ONLY JSON."
+        #     )
+        # else:
+        #     sys_msg = (
+        #         '면접을 지금 종료할지 결정하라. '
+        #         '출력은 반드시 정확히 {{"stop": true}} 또는 {{"stop": false}} 둘 중 하나만. '
+        #         '그 외 다른 텍스트, 설명, 따옴표, 주석을 절대 쓰지 말라.'
+        #     )
+        #     user_msg = (
+        #         "마지막_질문: {q}\n마지막_답변: {a}\n분석.잘한점: {g}\n분석.개선점: {b}\n점수: {s}\n"
+        #         "JSON만 반환."
+        #     )
 
-    if getattr(state, "language", "KOREAN") == "ENGLISH":
-        sys_msg = (
-            "Decide whether to end the interview now. Output ONLY JSON like {\"stop\": true|false}. "
-            "Stop if competency seems sufficiently assessed OR continuing is unlikely to change the decision."
-        )
-        user_msg = (
-            "last_question: {q}\nlast_answer: {a}\nanalysis.good: {g}\nanalysis.bad: {b}\nscore: {s}\n"
-            "Return ONLY JSON."
-        )
-    else:
-        sys_msg = (
-            "면접을 지금 종료할지 결정하라. 출력은 {\"stop\": true|false} 형태의 JSON만. "
-            "역량 평가가 충분하거나 추가 질문으로 판단이 크게 바뀔 가능성이 낮으면 종료한다."
-        )
-        user_msg = (
-            "마지막_질문: {q}\n마지막_답변: {a}\n분석.잘한점: {g}\n분석.개선점: {b}\n점수: {s}\n"
-            "JSON만 반환."
-        )
+        # print("🔥 sys_msg 원본 =", repr(sys_msg))
+        # print("🔥 user_msg 원본 =", repr(user_msg))
 
-    try:
-        p = ChatPromptTemplate.from_messages([("system", sys_msg), ("user", user_msg)])
-        resp = (p | llm.bind(max_tokens=12, temperature=0)).invoke({
-            "q": last_q[:300], "a": ans[:300], "g": str(good)[:200], "b": str(bad)[:200], "s": score,
-        })
-        raw = (getattr(resp, "content", str(resp)) or "").strip()
-        raw = raw.replace("```json", "").replace("```", "").strip()
-        data = json.loads(raw) if raw.startswith("{") else {}
-        return bool(data.get("stop", False))
-    except Exception as e:
-        print("⚠️ [동적 종료 판단 실패 → 계속 진행]:", e)
-        return False
+        # try:
+        #     p = ChatPromptTemplate.from_messages([("system", sys_msg), ("user", user_msg)])
+        #     resp = (p | llm.bind(max_tokens=12, temperature=0)).invoke({
+        #         "q": last_q[:300], "a": ans[:300], "g": str(good)[:200], "b": str(bad)[:200], "s": score,
+        #     })
+        #     raw = (getattr(resp, "content", str(resp)) or "").strip()
+        #     raw = raw.replace("```json", "").replace("```", "").strip()
+        #     data = json.loads(raw) if raw.startswith("{") else {}
+        #     return bool(data.get("stop", False))
+        # except Exception as e:
+        #     print("⚠️ [동적 종료 판단 실패 → 계속 진행]:", e)
+        #     return False
+        return True  # ⬅️ 임시로 True
+    # 3) 최소치 이전이면 무조건 계속 진행
+    return False
     
 _HANGUL = re.compile(r"[가-힣]")  # 빠른 1차 체크용(간단)
 
@@ -177,9 +188,9 @@ def safe_parse_json_from_llm(content: str) -> dict:
         return {}
 
 type_rule_map = {
-    "tech": "- 기술적인 깊이를 평가할 수 있는 질문을 포함할 것",
-    "behavior": "- 행동 및 가치관을 평가할 수 있는 질문을 포함할 것",
-    "mixed": "- 기술과 인성을 모두 평가할 수 있는 질문을 포함할 것"
+    "TECHNICAL": "- 기술적인 깊이를 평가할 수 있는 질문을 포함할 것",
+    "PERSONALITY": "- 행동 및 가치관을 평가할 수 있는 질문을 포함할 것",
+    "MIXED": "- 기술과 인성을 모두 평가할 수 있는 질문을 포함할 것"
 }
 def get_type_rule(state):
     return type_rule_map.get(state.interviewType, "")
@@ -193,6 +204,9 @@ def get_language_rule(lang: str):
         return ""
 
 #---------------------------------------------------------------------------------------------------------------------------------
+def check_keepGoing(state: InterviewState) -> str:
+    print("🧐 check_keepGoing 진입:", state.keepGoing)
+    return "stop" if state.keepGoing is False else "continue"
 #def router_node(state: InterviewState) -> str:
     if not state.answer:
         print("🧭 [router_node] 첫 질문 생성 흐름")
@@ -247,6 +261,7 @@ def keepGoing_node(state: InterviewState) -> Union[InterviewState, None]:
     try:
         # 1차: KoELECTRA 분류
         label = keepGoing(question, answer)
+        print(f"🧩 [KoELECTRA 결과] label={label!r}")
         if label == "terminate":
             print("🔎 [keepGoing_node] KoELECTRA 종료 예측 → LLM 확인")
 
@@ -254,7 +269,7 @@ def keepGoing_node(state: InterviewState) -> Union[InterviewState, None]:
             if _should_stop_dynamic(state):
                 print("🛑 [keepGoing_node] LLM도 종료 확인 → FSM 종료")
                 state.keepGoing = False
-                return None
+                return state
             else:
                 print("⚠️ [keepGoing_node] KoELECTRA는 종료 예측했지만, LLM은 계속 진행")
                 state.keepGoing = True

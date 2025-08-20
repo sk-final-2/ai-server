@@ -22,6 +22,7 @@ class InterviewState(BaseModel):
     options_locked: bool = False  # ✅ 유지
     aspect_index: int = 0         # 질문 측면 라운드로빈 인덱스
     dup_streak: int = 0           # 유사문 판정 연속 실패 카운트
+
     class Config:
         # ✅ 외부에서 dict → 모델 생성할 때, alias 없이도 작동하게 허용
         allow_population_by_field_name = True
