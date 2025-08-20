@@ -12,7 +12,9 @@ dependencies = [
     "uvicorn (>=0.35.0,<0.36.0)",
     "pypdf2 (>=3.0.1,<4.0.0)",
     "python-docx (>=1.2.0,<2.0.0)",
-    "python-multipart (>=0.0.20,<0.0.21)"
+    "python-multipart (>=0.0.20,<0.0.21)",
+    "pymupdf (>=1.26.3,<2.0.0)",
+    "regex (>=2025.7.34,<2026.0.0)"
 ]
 
 
