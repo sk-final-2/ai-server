@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File
 from utils.extractor import (
-    extract_text_from_pdf,
+    extract_text_from_pdf_pymupdf,
     extract_text_from_txt,
     extract_text_from_docx
 )
@@ -26,7 +26,7 @@ async def upload_file(file: UploadFile = File(...)):
     try:
         # 확장자별 텍스트 추출
         if ext == ".pdf":
-            raw_text = extract_text_from_pdf(tmp_path)
+            raw_text = extract_text_from_pdf_pymupdf(tmp_path)
         elif ext == ".txt":
             raw_text = extract_text_from_txt(tmp_path)
         elif ext == ".docx":
