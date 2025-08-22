@@ -1,11 +1,11 @@
 from fastapi import FastAPI, UploadFile, File
-from utils.extractor import (
+from src.utils.extractor import (
     extract_text_from_pdf_pymupdf,
     extract_text_from_txt,
     extract_text_from_docx
 )
 import tempfile, os, re
-from utils.text_cleaner import clean_spacing
+from src.utils.text_cleaner import clean_spacing
 
 app = FastAPI()
 

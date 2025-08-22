@@ -2,7 +2,7 @@ from typing import List, Dict, Any
 import fitz # PyMuPDF 
 import regex as re
 from docx import Document
-from utils.text_cleaner import clean_pdf_text
+from src.utils.text_cleaner import clean_pdf_text
 
 # 문자열의 간격 조정
 def _avg_char_width(spans: List[Dict[str, Any]]) -> float:

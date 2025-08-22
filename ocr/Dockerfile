@@ -17,10 +17,7 @@ COPY pyproject.toml poetry.lock ./
 RUN poetry install --no-root
 
 # [7] 실제 소스 코드 복사
-COPY src/ ./src
+COPY ./src ./src
 
-# [8] 작업 디렉토리를 src로 이동
-WORKDIR /app/src
-
-# [9] FastAPI 실행 (포트 8002)
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
+# [8] FastAPI 실행 (포트 8002)
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8002"]
