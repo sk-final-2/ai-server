@@ -1,0 +1,12 @@
+version: "3.9"
+services:
+  interview-evaluate:
+    image: tp9ns/recruitai:evaluate-ai   # 이미 빌드한 이미지
+    container_name: interview-evaluate
+    ports: ["8000:8000"]
+    volumes:
+      - ./models:/app/models:ro          # ✅ 호스트 models -> 컨테이너 /app/models
+    gpus: all                            # ✅ GPU 붙이기(가능할 때)
+    shm_size: "2g"
+    environment:
+      - TRANSFORMERS_OFFLINE=1 

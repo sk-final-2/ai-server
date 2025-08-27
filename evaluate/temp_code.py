@@ -28,7 +28,7 @@ class EvaluationResponse(BaseModel):
 app = FastAPI(
     title="면접 평가 API",
     description="Llama 3 파인튜닝 모델과 vLLM을 사용한 AI 면접관 API",
-    version="1.0.0"
+    version="1.0.0" 
 )
 
 # 시스템 프롬프트 (학습 때 사용한 것과 완벽히 동일해야 함)

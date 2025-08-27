@@ -3,7 +3,7 @@ name = "interview-evaluate"
 version = "0.1.0"
 description = "interview answer evaluate"
 authors = [
-    {name = "MinUL",email = "87965992+adunto@users.noreply.github.com"}
+    {name = "tp9ns",email = "ajtwlstpgns@naver.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
