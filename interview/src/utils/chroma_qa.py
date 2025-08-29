@@ -1,4 +1,4 @@
-import re, math
+import re, math, json
 from typing import Optional, List, Dict, Any
 from utils.chroma_setup import get_collections, EF
 
@@ -43,6 +43,8 @@ def save_question(
     job: Optional[str] = None,
     level: Optional[str] = None,
     language: Optional[str] = None,
+    topic=None, 
+    aspect=None
 ) -> None:
     _id = f"{interviewId}:{seq}:q"
     _question.add(
@@ -52,9 +54,24 @@ def save_question(
             "interviewId": interviewId,
             "seq": seq,
             "type": "question",
-            "job": job, "level": level, "language": language,
+            "job": job or "",
+            "level": level or "",
+            "language": language or "",
+            "topic": topic or "",
+            "aspect": aspect or ""
         }],
     )
+
+    # 🔥 documents + metadatas 둘 다 가져오기
+    rows = _question.get(where={"interviewId": interviewId}, include=["documents", "metadatas"])
+    docs = rows.get("documents", [])
+    metas = rows.get("metadatas", [])
+
+    print(f"💾 [DEBUG] 현재 인터뷰({interviewId})에 저장된 질문들:")
+    for q, meta in zip(docs, metas):
+        print(f"   seq={meta.get('seq')} | 질문: {q}")
+        print(f"   토픽: {meta.get('topic')}")
+        print(f"   측면(aspect): {meta.get('aspect')}")
 
 def save_answer(
     interviewId: str,
@@ -75,7 +92,74 @@ def save_answer(
             "job": job, "level": level, "language": language,
         }],
     )
+# -----------------------
+# 질문-답변-피드백 턴 저장
+def save_turn(
+    interviewId: str,
+    seq: int,
+    question: str,
+    answer: str,
+    good: str = "",
+    bad: str = "",
+    score: int = 0,
+    topic: str = "",
+    aspect: str = "",
+    job: Optional[str] = None,
+    level: Optional[str] = None,
+    language: Optional[str] = None,
+    feedback: Optional[Dict[str, Any]] = None,
+) -> None:
+    """질문-답변-피드백 전체 턴 저장"""
+    _id = f"{interviewId}:{seq}:t"
 
+    meta = {
+        "interviewId": interviewId,
+        "seq": seq,
+        "type": "turn",
+        "question": question or "",
+        "answer": answer or "",
+        "good": good or "",
+        "bad": bad or "",
+        "score": max(0, min(100, int(score) if isinstance(score, (int, str)) else 0)),
+        "topic": topic or "",
+        "aspect": aspect or "",
+        "job": job or "",
+        "level": level or "",
+        "language": language or "",
+        "feedback": json.dumps(feedback) if feedback else "",
+    }
+
+    doc = f"Q: {question}\nA: {answer}\n[Feedback] good: {good} | bad: {bad} | score: {score}"
+
+    try:
+        existed = _feedback.get(ids=[_id])
+        if existed and existed.get("ids"):
+            _feedback.update(
+                ids=[_id],
+                metadatas=[meta],
+                documents=[doc],
+            )
+            print(f"🔄 [Turn Update] interviewId={interviewId}, seq={seq}")
+            print("   질문:", question)
+            print("   답변:", answer)
+            print("   토픽:", topic)
+            print("   측면(aspect):", aspect)
+            print("   피드백:", feedback)
+            return
+    except Exception:
+        pass
+
+    _feedback.add(
+        ids=[_id],
+        metadatas=[meta],
+        documents=[doc],
+    )
+    print(f"💾 [Turn Saved] interviewId={interviewId}, seq={seq}")
+    print("   질문:", question)
+    print("   답변:", answer)
+    print("   토픽:", topic)
+    print("   측면(aspect):", aspect)
+    print("   피드백:", feedback)
 # -----------------------
 # 질문 유사도(세션 스코프)
 # -----------------------
@@ -83,7 +167,7 @@ def get_similar_question(
     interviewId: str,
     question: str,
     k: int = 5,
-    min_similarity: float = 0.88,
+    min_similarity: float = 0.8,
     verify_all: bool = True,
 ) -> Dict[str, Any]:
     """
@@ -91,6 +175,9 @@ def get_similar_question(
     2) (옵션) 임계값 미달이면 세션 '전체 질문 임베딩' 전수 비교
     return: dict(similar, top_sim, match, method, hits)
     """
+
+    print(f"\n🔎 [DEBUG:get_similar_question] interviewId={interviewId}")
+    print(f"   ▶︎ New Question: {question}")
 
     # ---------- 1) KNN 빠른 체크 ----------
     res = _question.query(
@@ -108,18 +195,23 @@ def get_similar_question(
     hits: List[Dict[str, Any]] = []
     qn = _norm(question)
 
-    # 길이 기반으로만 체크 (배열 truth 금지)
     if len(docs) and len(dists):
         for doc, dist in zip(docs, dists):
             doc = "" if doc is None else str(doc)
             sim = 1.0 - float(dist)  # cosine
-            if _norm(doc) == qn:     # 동일 문장 제외
+            if _norm(doc) == qn:  # 완전히 동일한 문장은 제외
                 continue
             hits.append({"doc": doc, "sim": sim, "dist": float(dist)})
 
     hits.sort(key=lambda x: x["sim"], reverse=True)
 
-    if len(hits) and hits[0]["sim"] >= min_similarity:
+    if hits:
+        print("   ▶︎ KNN hits:")
+        for h in hits:
+            print(f"      - '{h['doc']}' | sim={h['sim']:.4f}")
+
+    if hits and hits[0]["sim"] >= min_similarity:
+        print(f"✅ KNN Top match: {hits[0]['doc']} (sim={hits[0]['sim']:.4f}) >= {min_similarity}")
         return {
             "similar": True,
             "top_sim": float(hits[0]["sim"]),
@@ -139,15 +231,9 @@ def get_similar_question(
     )
     all_docs = _tolist(rows.get("documents", [])) or []
     all_embs = _tolist(rows.get("embeddings", [])) or []
-    # 일부 버전은 리스트가 이중으로 감싸져 올 수 있음
-    if all_docs and isinstance(all_docs[0], list) and isinstance(all_embs[0], list):
-        all_docs = all_docs
-        all_embs = all_embs
-    elif all_docs and not isinstance(all_docs[0], list):
-        # 평평하면 OK
-        pass
 
     if not all_docs:
+        print("⚠️ No documents found for interviewId in Chroma")
         return {"similar": False, "top_sim": 0.0, "match": None, "method": "all", "hits": hits}
 
     qvec = EF([question])[0]
@@ -155,7 +241,7 @@ def get_similar_question(
 
     best_sim, best_doc = 0.0, None
     for doc, emb in zip(all_docs, all_embs):
-        if emb is None or (hasattr(emb, "__len__") and len(emb) == 0):
+        if not emb:
             continue
         emb = _tolist(emb)
         doc = "" if doc is None else str(doc)
@@ -164,6 +250,9 @@ def get_similar_question(
         sim = _cosine(qvec, emb)
         if sim > best_sim:
             best_sim, best_doc = sim, doc
+
+    if best_doc:
+        print(f"   ▶︎ Best overall match: '{best_doc}' (sim={best_sim:.4f})")
 
     return {
         "similar": best_sim >= min_similarity,

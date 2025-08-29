@@ -31,7 +31,7 @@ src/**/__pycache__/
 temp/
 logs/
 *.log
-
+*.uploads/
 # ===== 아카이브/대형파일(혹시 있을 경우) =====
 *.tar
 *.zip

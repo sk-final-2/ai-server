@@ -83,24 +83,72 @@ def normalize_language(lang: str | None) -> str:
         return "KOREAN"
     return "KOREAN"
 
-def system_rule(language: str) -> str:
+def system_rule(state) -> str:
+    language = getattr(state, "language", "KOREAN")
+    interviewType = getattr(state, "interviewType", "MIXED")
+    career = getattr(state, "career", "신입")
+    level = getattr(state, "level", "중")
+
     if language == "ENGLISH":
-        return ("You are an interviewer. Use ONLY English."
+        base = ("You are an interviewer. Use ONLY English."
                 " -Do not include any non-English words or characters (no CJK, no transliteration)."
                 " -Proper nouns may be used as they are."
                 " -Output exactly ONE sentence with no preface, numbering, quotes, or explanations."
                 " -Ask a specific question about ONE of: core role competencies, recent work, a project,"
                 " or a problem the candidate solved. Do not repeat or closely paraphrase the previous question."
-                " -Do NOT evaluate/recap/declare"
-                )
-    return ("너는 면접관이다. 오직 한국어만 사용한다."
+                " -Do NOT evaluate/recap/declare.")
+
+        if interviewType == "PERSONALITY":
+            base += " Focus only on behavioral/personality interview questions (values, attitude, teamwork, communication)."
+        elif interviewType == "TECHNICAL":
+            base += " Focus only on TECHNICALnical competencies, project experience, and problem-solving skills."
+        elif interviewType == "MIXED":
+            base += " Balance both behavioral/personality and TECHNICALnical questions. Do not repeat the same type consecutively."
+
+        if career == "신입":
+            base += " The candidate is entry-level, so focus on learning attitude, growth potential, and adaptability to new environments rather than prior work experience."
+        elif career == "경력":
+            base += " The candidate is experienced, so focus on concrete achievements, project leadership, collaboration, and problem-solving experience."
+
+        if level == "하":
+            base += " Keep the questions simple, focusing on basic knowledge and straightforward experiences."
+        elif level == "중":
+            base += " Ask questions of medium difficulty that assess the candidate’s ability to apply skills in real projects and handle practical situations."
+        elif level == "상":
+            base += " Ask in-depth and challenging questions that evaluate advanced problem-solving, strategic thinking, and the ability to analyze complex scenarios."
+
+        return base
+
+    # KOREAN
+    base = ("너는 면접관이다. 오직 한국어만 사용한다."
             " -영어, 한자, 일본어, 중국어 등 다른 언어 사용 금지."
             " -고유명사는 그대로 사용할 것."
             " -출력은 정확히 한 문장. 머리말/번호/따옴표/설명 금지."
             " -직무 핵심 역량·최근 업무·프로젝트·문제 해결 중 하나를 구체적으로 묻기."
             " -직전 질문을 반복하거나 비슷하게 바꾸지 말 것."
-            " -평가·요약·진술문 금지"
-            )
+            " -평가·요약·진술문 금지.")
+
+    if interviewType == "PERSONALITY":
+        base += " 인성면접 질문만 하라 (가치관, 태도, 협업, 커뮤니케이션 관련)."
+    elif interviewType == "TECHNICAL":
+        base += " 기술면접 질문만 하라 (역량, 프로젝트 경험, 문제 해결 관련)."
+    elif interviewType == "MIXED":
+        base += " 인성과 기술 질문을 균형 있게 섞어서 하라. 동일한 유형만 반복하지 말라."
+
+    if career == "신입":
+        base += "지원자는 신입이므로 실무 경험보다는 학습 태도, 성장 가능성, 새로운 환경 적응력에 초점을 맞추라."
+    elif career == "경력":
+        base += "지원자는 경력직이므로 구체적인 성과, 프로젝트 리더십, 협업 및 문제 해결 경험에 초점을 맞추라."
+
+    if level == "하":
+        base += "“질문은 기본 지식과 단순 경험을 확인하는 쉬운 수준으로 하라."
+    elif level == "중":
+        base += "질문은 실제 프로젝트 적용 가능성이나 상황 대처 능력을 확인할 수 있는 중간 수준으로 하라."
+    elif level == "상":
+        base += "질문은 고난도 문제 해결, 전략적 사고, 복잡한 상황 분석 능력을 확인할 수 있는 심층적이고 어려운 수준으로 하라."
+
+    return base
+
 
 def enforce_language_ok(text: str, target: str) -> bool:
     if target == "ENGLISH":
@@ -188,7 +236,7 @@ def safe_parse_json_from_llm(content: str) -> dict:
         return {}
 
 type_rule_map = {
-    "TECHNICAL": "- 기술적인 깊이를 평가할 수 있는 질문을 포함할 것",
+    "TECHNICALNICAL": "- 기술적인 깊이를 평가할 수 있는 질문을 포함할 것",
     "PERSONALITY": "- 행동 및 가치관을 평가할 수 있는 질문을 포함할 것",
     "MIXED": "- 기술과 인성을 모두 평가할 수 있는 질문을 포함할 것"
 }
@@ -207,13 +255,6 @@ def get_language_rule(lang: str):
 def check_keepGoing(state: InterviewState) -> str:
     print("🧐 check_keepGoing 진입:", state.keepGoing)
     return "stop" if state.keepGoing is False else "continue"
-#def router_node(state: InterviewState) -> str:
-    if not state.answer:
-        print("🧭 [router_node] 첫 질문 생성 흐름")
-        return "first_question"
-    else:
-        print("🧭 [router_node] 답변 분석 흐름")
-        return "answer"
     
 def set_options_node(state: InterviewState) -> InterviewState:
     """🛠 면접 옵션(language, level, count, interviewType) 확정 노드"""
@@ -502,7 +543,7 @@ def analyze_node(state: InterviewState) -> InterviewState:
         ])
 
         try:
-            chain = prompt | llm.bind(max_tokens=140, temperature=0.2, top_p=0.8)
+            chain = prompt | llm.bind(max_tokens=250, temperature=0.2, top_p=0.8)
         except AttributeError:
             chain = prompt | llm
 

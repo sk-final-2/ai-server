@@ -5,10 +5,10 @@ from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from typing import Optional, Literal
 import os, uuid, shutil
-
+from utils.chroma_qa import save_turn  # ✅ 추가
 from stt.corrector import correct_transcript
 from interview.model import InterviewState
-from stt.transcriber import convert_to_wav, transcribe_audio
+from stt.transcriber import stt_from_path
 from interview.graph import graph_app
 from utils.chroma_setup import reset_chroma, get_collections, reset_interview  # ✅ 변경
 
@@ -72,7 +72,7 @@ async def first_ask(payload: StateRequest, request: Request):
             count=payload.count,
             options_locked=False,
             # 초기화
-            question=[],
+            question="",
             answer=[],
             last_answer=None,
             keepGoing=True, 
@@ -87,9 +87,38 @@ async def first_ask(payload: StateRequest, request: Request):
         # ✅ 세션 캐시 갱신
         session_state[payload.interviewId] = result
 
+        last_question = (
+            result.questions[-1] if hasattr(result, "questions") and result.questions
+            else result.question
+        )
+
+        topic = (
+            state.topics[state.current_topic_index]["name"]
+            if getattr(state, "topics", None)
+            and 0 <= state.current_topic_index < len(state.topics)
+            else ""
+        )
+
+        aspect = (
+            state.aspects[state.aspect_index]
+            if getattr(state, "aspects", None)
+            and 0 <= state.aspect_index < len(state.aspects)
+            else ""
+        )
+        
+        save_turn(
+            interviewId=payload.interviewId,
+            seq=1,
+            question=last_question,
+            answer="",
+            topic=topic,
+            aspect=aspect,
+            feedback=None,
+        )
+        
         return {
             "interviewId": payload.interviewId,
-            "interview_question": (result.question[-1] if result.question else "")
+            "interview_question": result.question
         }
         
     except Exception as e:
@@ -108,7 +137,7 @@ async def stt_ask(
     if not state:
         raise HTTPException(status_code=404, detail="면접 세션이 없습니다. /first-ask를 먼저 호출하세요.")
 
-    # 2) 파일 저장 + STT 변환
+    # 2) 업로드 파일 저장 (임시 보관)
     ext = (file.filename or "uploaded").split(".")[-1].lower()
     if ext not in ["mp4", "webm", "wav", "m4a", "mp3"]:
         raise HTTPException(status_code=400, detail="지원하지 않는 파일 형식입니다.")
@@ -116,31 +145,33 @@ async def stt_ask(
     with open(in_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    wav_path = _temp_path(f"{uuid.uuid4().hex}.wav")
-    convert_to_wav(in_path, wav_path)
-    raw = transcribe_audio(wav_path)
-    corrected = correct_transcript(raw) or raw
+    # 3) STT 실행 (numpy 기반)
+    raw_transcript = stt_from_path(in_path)
+    corrected = correct_transcript(raw_transcript) or raw_transcript
+    if isinstance(corrected, dict):
+        corrected = corrected.get("raw","")
+    if not isinstance(corrected, str):
+        corrected = str(corrected)
 
-    # 3) 답변 업데이트 (→ DB 저장은 answer_node에서 처리됨)
+    # 4) 답변 업데이트 (→ DB 저장은 answer_node에서 처리됨)
     state.last_answer = corrected
     if not hasattr(state, "answer"):
         state.answer = []
     state.answer.append(corrected)
 
-    # ✅ 3-1) 동적 모드(count=0)일 때만 임시 질문 보관
+    # ✅ 4-1) 동적 모드(count=0)일 때만 임시 질문 보관
     if getattr(state, "count", 0) == 0 and question:
-        # DB에는 저장하지 않고, state에만 임시 저장
         state.last_question_for_dynamic = question
         print(f"📝 [stt-ask] 동적 모드용 질문 저장: {question}")
 
-    # 4) 그래프 실행 (분석 → keepgoing → next_question)
+    # 5) 그래프 실행 (분석 → keepgoing → next_question)
     result = graph_app.invoke(state.model_dump())
     if isinstance(result, dict):
         result = InterviewState(**result)
 
     session_state[interviewId] = result
 
-    # 5) 출력용 seq & 종료 여부
+    # 6) 출력용 seq & 종료 여부
     seq_out = getattr(result, "step", None)
     if seq_out is None:
         seq_out = getattr(result, "seq", None)
@@ -149,6 +180,16 @@ async def stt_ask(
 
     analysis = result.last_analysis if hasattr(result, "last_analysis") else {}
 
+    save_turn(
+        interviewId=interviewId,
+        seq=seq_out,
+        question=result.questions[-1] if result.questions else "",
+        answer=corrected,
+        topic=state.topics[state.current_topic_index]["name"] if state.topics else None,
+        aspect=state.aspects[state.aspect_index] if hasattr(state, "aspects") else None,
+        feedback=analysis
+    )
+
     return {
         "interviewId": interviewId,
         "seq": seq_out,
@@ -156,6 +197,6 @@ async def stt_ask(
         "interview_answer_good": analysis.get("good", ""),
         "interview_answer_bad": analysis.get("bad", ""),
         "score": analysis.get("score", 0),
-        "new_question": result.question[-1] if getattr(result, "question", None) else "",
-        "keepGoing": getattr(result, "keepGoing", True)
+        "new_question": result.question if getattr(result, "question", None) else "",
+        "keepGoing": getattr(result, "keepGoing", True),
     }

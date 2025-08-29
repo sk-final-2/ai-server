@@ -19,6 +19,10 @@ faster-whisper = ">=1.1.1,<2.0.0"
 sentence-transformers = "^5.1.0"
 safetensors = "^0.6.2"
 transformers = "^4.55.2"
+pydot = "^4.0.1"
+graphviz = "^0.21"
+json-repair = "^0.50.0"
+dirtyjson = "^1.0.8"
 
 [build-system]
 requires = ["poetry-core>=1.9.0"]

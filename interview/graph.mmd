@@ -1,0 +1,38 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	set_options(set_options)
+	default_topic(default_topic)
+	first_question(first_question)
+	answer(answer)
+	analyze(analyze)
+	keepGoing(keepGoing)
+	next_question(next_question)
+	start_node(start_node)
+	extract_topics(extract_topics)
+	bridge(bridge)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> set_options;
+	analyze -.-> bridge;
+	analyze -.-> keepGoing;
+	analyze -.-> next_question;
+	answer --> analyze;
+	bridge --> next_question;
+	default_topic --> first_question;
+	extract_topics --> first_question;
+	keepGoing -. &nbsp;stop&nbsp; .-> __end__;
+	keepGoing -.-> bridge;
+	keepGoing -.-> next_question;
+	set_options -. &nbsp;followup&nbsp; .-> answer;
+	set_options -. &nbsp;first&nbsp; .-> start_node;
+	start_node -. &nbsp;without_resume&nbsp; .-> default_topic;
+	start_node -. &nbsp;with_resume&nbsp; .-> extract_topics;
+	first_question --> __end__;
+	next_question --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
