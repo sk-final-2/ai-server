@@ -31,6 +31,9 @@ class GazeDirectionVideo:
         self.consec_count = 0
         self.last_event_time_sec = -1e9  # 마지막 이벤트 발생 시각(초)
 
+        self._unit_penalty = None
+        self._unit_decimals = 1
+
         BASE_DIR = os.path.dirname(__file__)
         MODEL_PATH = os.path.join(BASE_DIR, "..", "head_detection", "model.pkl")
         MODEL_PATH = os.path.abspath(MODEL_PATH)
@@ -44,6 +47,11 @@ class GazeDirectionVideo:
         self.PITCH_CENTER = 0.0
         self.YAW_CENTER = 0.0
         self.ROLL_CENTER = 0.0
+
+    def set_video_duration(self, total_secs: float, decimals: int = 1):
+        total_secs = max(float(total_secs), 1e-6)
+        self._unit_penalty = round(100.0 / total_secs, decimals)
+        self._unit_decimals = decimals
 
     def calibrate_center(self, pitch, yaw, roll):
         self.PITCH_CENTER = pitch
@@ -142,13 +150,18 @@ class GazeDirectionVideo:
             return {"score": 100, "penalty": 0, "reasons": [], "events": self.events}
 
         reason_counts = Counter(self.violations)
-        penalty = sum(reason_counts.values()) * self.penalty_per_violation
+        n = sum(reason_counts.values())
+
+        unit = self._unit_penalty if self._unit_penalty is not None else self.penalty_per_violation
+        penalty = round(unit * n, self._unit_decimals if self._unit_penalty is not None else 0)
+        score = max(0, round(100 - penalty, self._unit_decimals if self._unit_penalty is not None else 0))
+
         reasons = [
             f"{self.REASON_TRANSLATIONS.get(reason, reason)} {count}회"
             for reason, count in reason_counts.items()
         ]
         return {
-            "score": max(0, 100 - penalty),
+            "score": score,
             "penalty": penalty,
             "reasons": reasons,
             "events": self.events

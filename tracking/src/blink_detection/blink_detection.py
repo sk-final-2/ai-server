@@ -22,9 +22,17 @@ class BlinkCounterVideo:
         self.blink_limit_10s = blink_limit_10s # 10초 동안 허용되는 최대 깜빡임 횟수
         self.penalty_per_excess = penalty_per_excess # 위반 시 감점 점수
         self.blink_violations = [] # 위반 기록 저장
-        # self.last_violation_time = 0  # 직전 위반 체크 시각
+
         self.last_violation_time = -1e9   # 마지막 위반 기록된 t_sec
         self.events = []                  # [{"time": float, "reason": str}, ...]
+
+        self._unit_penalty = None     # 1회 위반당 감점(영상 길이 기반)
+        self._unit_decimals = 1
+
+    def set_video_duration(self, total_secs: float, decimals: int = 1):
+        total_secs = max(float(total_secs), 1e-6)
+        self._unit_penalty = round(100.0 / total_secs, decimals)
+        self._unit_decimals = decimals
 
     def eye_aspect_ratio(self, eye_landmarks, landmarks):
         """
@@ -91,9 +99,15 @@ class BlinkCounterVideo:
             return {"score": 100, "penalty": 0, "reasons": [], "events": self.events}
 
         reason_counts = Counter(self.blink_violations)
-        penalty = len(self.blink_violations) * self.penalty_per_excess
+        n = sum(reason_counts.values())
+
+        # 영상 길이 기반 단위 감점이 있으면 사용, 없으면 기존 고정 감점
+        unit = self._unit_penalty if self._unit_penalty is not None else self.penalty_per_excess
+        penalty = round(unit * n, self._unit_decimals if self._unit_penalty is not None else 0)
+        score = max(0, round(100 - penalty, self._unit_decimals if self._unit_penalty is not None else 0))
+
         return {
-            "score": max(0, 100 - penalty),
+            "score": score,
             "penalty": penalty,
             "reasons": [f"{reason} {count}회" for reason, count in reason_counts.items()],
             "events": self.events

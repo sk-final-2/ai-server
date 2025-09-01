@@ -59,17 +59,20 @@ def run_all_analyses(video_path):
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
 
+    # 모듈 생성
     blink = BlinkCounterVideo()
     gaze = GazeDirectionVideo()
     face_touch = FaceTouchDetectorVideo()
     head_pose = HeadPoseVideo()
     face_touch.set_fps(fps)
 
+    # 센터 보정 (고개/시선)
     measure_center(cap, head_pose, head_pose._predict_pose, head_pose.calibrate_center, label="Head Pose")
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
     measure_center(cap, gaze, gaze.predict_head_pose, gaze.calibrate_center, label="Gaze")
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
+    # 솔루션 초기화
     mp_face_mesh = mp.solutions.face_mesh
     face_mesh = mp_face_mesh.FaceMesh(
         max_num_faces=1,
@@ -121,8 +124,27 @@ def run_all_analyses(video_path):
         face_touch.process(landmarks_xy, hand_lms, w, h, t_sec)
         head_pose.process(landmarks_obj, t_sec)
 
-    cap.release()
+    # 영상 길이 계산
+    cap_frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+    # 우선 CAP_PROP_FRAME_COUNT를 시도, 실패 시 실제 처리한 frame_idx 사용
+    total_secs_meta = (cap_frame_count / fps) if cap_frame_count > 0 else 0
+    total_secs_actual = frame_idx / fps if frame_idx > 0 else 0
+    total_secs = total_secs_meta if total_secs_meta > 0 else total_secs_actual
+    # 최소 안전값
+    if total_secs <= 0:
+        total_secs = 1.0
+
+    # 단위 감점 세팅
+    for m in (blink, gaze, face_touch, head_pose):
+        if hasattr(m, "set_video_duration"):
+            m.set_video_duration(total_secs, decimals=1)
+    # 이중 안전장치
+    for m in (blink, gaze, face_touch, head_pose):
+        if getattr(m, "_unit_penalty", None) is None and hasattr(m, "set_video_duration"):
+            m.set_video_duration(total_secs, decimals=1)
+
     # 리소스 정리
+    cap.release()
     face_mesh.close()
     hands.close()
     cv2.destroyAllWindows()
@@ -136,8 +158,8 @@ def run_all_analyses(video_path):
     # 텍스트 요약
     def summarize(name, r):
         if r["reasons"]:
-            return f"{name}: {', '.join(r['reasons'])}로 인해 감점 {r['penalty']}점, 점수는 {r['score']}점입니다!"
-        return f"{name}: 감점 없이 만점입니다! 점수는 {r['score']}점입니다!"
+            return f"{name}: {', '.join(r['reasons'])}로 인해 감점 {r['penalty']:.1f}점, 점수는 {r['score']:.1f}점입니다!"
+        return f"{name}: 감점 없이 만점입니다! 점수는 {r['score']:.1f}점입니다!"
 
     text_summary = "\n".join([
         summarize("눈 깜빡임 감지 분석 결과", blink_res),
@@ -167,7 +189,6 @@ def run_all_analyses(video_path):
         "handScore":  hand_res["score"],
         "timestamp":  timestamps
     }, None
-
 
 @app.post("/tracking")
 async def analyze_tracking(
