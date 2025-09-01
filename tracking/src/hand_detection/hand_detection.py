@@ -12,6 +12,14 @@ class FaceTouchDetectorVideo:
         self.penalized_sections = 0
         self.events = []  # [{"time":"MM:SS","reason":"손 움직임"}]
 
+        self._unit_penalty = None
+        self._unit_decimals = 1
+
+    def set_video_duration(self, total_secs: float, decimals: int = 1):
+        total_secs = max(float(total_secs), 1e-6)
+        self._unit_penalty = round(100.0 / total_secs, decimals)
+        self._unit_decimals = decimals
+
     def set_fps(self, fps):
         self.frame_threshold = int(fps * 0.5)
 
@@ -78,9 +86,11 @@ class FaceTouchDetectorVideo:
             self.in_touch = False
 
     def get_result(self):
-        penalty = self.penalized_sections * self.penalty_per_violation
-        score = max(0, 100 - penalty)
-        reasons = [f"얼굴 터치 {self.penalized_sections}회"] if self.penalized_sections > 0 else []
+        n = self.penalized_sections
+        unit = self._unit_penalty if self._unit_penalty is not None else self.penalty_per_violation
+        penalty = round(unit * n, self._unit_decimals if self._unit_penalty is not None else 0)
+        score = max(0, round(100 - penalty, self._unit_decimals if self._unit_penalty is not None else 0))
+        reasons = [f"얼굴 터치 {n}회"] if n > 0 else []
         return {
             "score": score,
             "penalty": penalty,

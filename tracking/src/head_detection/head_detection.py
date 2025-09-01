@@ -32,12 +32,20 @@ class HeadPoseVideo:
         self.last_event_time_sec = -1e9  # 마지막 이벤트 발생 시각(초)
 
         self.penalty_reasons_list = []
-        self.events = []  # [{"time":"MM:SS","reason":"고개 움직임"}]
+        self.events = []  # [{"time":"MM:SS","reason":"고개 움직임"}]'
+
+        self._unit_penalty = None
+        self._unit_decimals = 1
 
         # 모델 로드
         model_path = os.path.join(os.path.dirname(__file__), "model.pkl")
         with open(model_path, "rb") as f:
             self.model = pickle.load(f)
+
+    def set_video_duration(self, total_secs: float, decimals: int = 1):
+        total_secs = max(float(total_secs), 1e-6)
+        self._unit_penalty = round(100.0 / total_secs, decimals)
+        self._unit_decimals = decimals
 
     def calibrate_center(self, pitch, yaw, roll):
         self.pitch_center = pitch
@@ -97,13 +105,18 @@ class HeadPoseVideo:
             return {"score": 100, "penalty": 0, "reasons": [], "events": self.events}
     
         reason_counts = Counter(self.penalty_reasons_list)
-        penalty = sum(reason_counts.values()) * self.penalty_per_violation
+        n = sum(reason_counts.values())
+
+        unit = self._unit_penalty if self._unit_penalty is not None else self.penalty_per_violation
+        penalty = round(unit * n, self._unit_decimals if self._unit_penalty is not None else 0)
+        score = max(0, round(100 - penalty, self._unit_decimals if self._unit_penalty is not None else 0))
+
         reasons = [
             f"{self.REASON_TRANSLATIONS.get(reason, reason)} {count}회"
             for reason, count in reason_counts.items()
         ]
         return {
-            "score": max(0, 100 - penalty),
+            "score": score,
             "penalty": penalty,
             "reasons": reasons,
             "events": self.events
