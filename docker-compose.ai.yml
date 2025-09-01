@@ -19,14 +19,6 @@ services:
     networks:
       - backend-net
 
-  ocr-server:
-    image: tp9ns/recruitai:ocr-server
-    container_name: ocr-server
-    ports:
-      - "8002:8002"
-    networks:
-      - backend-net
-
   tracking-ai:
     image: tp9ns/recruitai:tracking-ai
     container_name: tracking-ai

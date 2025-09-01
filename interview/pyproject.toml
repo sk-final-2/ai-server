@@ -24,6 +24,12 @@ graphviz = "^0.21"
 json-repair = "^0.50.0"
 dirtyjson = "^1.0.8"
 
+# OCR 의존성
+pypdf2 = ">=3.0.1,<4.0.0"
+python-docx = ">=1.2.0,<2.0.0"
+pymupdf = ">=1.26.3,<2.0.0"
+regex = ">=2025.7.34,<2026.0.0"
+
 [build-system]
 requires = ["poetry-core>=1.9.0"]
 build-backend = "poetry.core.masonry.api"
