@@ -1,7 +1,7 @@
 from interview.question_bank import FALLBACK_POOL
 from interview.model import InterviewState, ResumeItem
 from interview.node.rules import system_rule
-from utils.chroma_qa import save_question
+from utils.chroma_qa import save_question, get_similar_question
 from utils.question_filter import is_redundant
 from interview.config import llm
 from langchain_core.prompts import ChatPromptTemplate
@@ -117,12 +117,12 @@ def first_question_node(state: InterviewState) -> InterviewState:
         job = (state.job or "").strip() or "웹 개발자"
         state.job = job
         lang_code = state.language or "KOREAN"
-
         print("\n======================")
         print("🎯 [first_question_node] 진입")
         print(f"💼 지원 직무: {job}")
         print("======================")
-
+        print(f"🧭 INTERVIEW TYPE: {state.interviewType}")
+        print(f"🧭 SELECTED ASPECT: {state.aspect}")
         interviewId = state.interviewId
         if not interviewId:
             raise ValueError("❌ interviewId가 없습니다.")
@@ -140,7 +140,7 @@ def first_question_node(state: InterviewState) -> InterviewState:
 
         print(f"📄 선택된 토픽: {state.topic}")
         print(f"📄 선택된 측면(aspect): {state.aspect}")
-
+        current_subtype = getattr(state, "subtype", None)
         # --- 프롬프트 생성 ---
         if state.topic:  # ✅ topic 기반
             prompt = ChatPromptTemplate.from_messages(
@@ -222,7 +222,8 @@ def first_question_node(state: InterviewState) -> InterviewState:
             level=state.level,
             language=state.language,
             topic=state.topic,    # ✅ 항상 state 값
-            aspect=state.aspect   # ✅ 항상 state 값
+            aspect=state.aspect,   # ✅ 항상 state 값
+            subtype=current_subtype
         )
 
         state.question = question
@@ -279,7 +280,9 @@ def next_question_node(state: InterviewState) -> InterviewState:
         topic = None
         if state.current_topic_index < len(topics):
             topic = topics[state.current_topic_index]
-
+        print(f"🧭 INTERVIEW TYPE: {state.interviewType}")
+        print(f"🧭 SELECTED ASPECT: {state.aspect}")
+        current_subtype = getattr(state, "subtype", None)
         # --- system 프롬프트 구성 ---
         summary_text = " ".join(item.desc for item in state.resume_summary) if state.resume_summary else ""
         system_prompt = (
@@ -319,10 +322,20 @@ def next_question_node(state: InterviewState) -> InterviewState:
             candidate_q = clean_question(candidate_q)
 
             print(f"🔄 [재시도 {attempt}] 후보 질문: {candidate_q}")
-
             from utils.chroma_qa import get_similar_question, save_question
+            save_question(
+            state.interviewId,
+            state.seq + 1,
+            candidate_q,
+            job=state.job,
+            level=state.level,
+            language=state.language,
+            topic=topic["name"] if topic else None,
+            aspect=aspect 
+            )              
+            
             check = get_similar_question(
-                state.interviewId, candidate_q, k=5, min_similarity=0.88, verify_all=True
+                state.interviewId, candidate_q, k=3, min_similarity=0.75, verify_all=True, subtype=current_subtype, job=state.job, 
             )
             redundant = False
             if prev_q:
@@ -346,12 +359,24 @@ def next_question_node(state: InterviewState) -> InterviewState:
         # 상태 업데이트
         state.question = final_q
         state.questions.append(final_q)
-
+        
+        save_question(
+            state.interviewId,
+            state.seq + 1,
+            state.question,
+            job=state.job,
+            level=state.level,
+            language=state.language,
+            topic=state.topic,
+            aspect=state.aspect
+        )
+        
         # --- ✅ terminate 기반 토픽 전환 ---
         if getattr(state, "last_label", None) == "terminate":
             print(f"🛑 terminate 신호 감지 → '{topics[state.current_topic_index]['name']}' 종료, 다음 토픽으로 이동")
             state.topics[state.current_topic_index]["asked"] = topics[state.current_topic_index].get("max_questions", 1)
             state.current_topic_index += 1
+            state.bridge_done = False
             state.last_label = None
             if state.current_topic_index < len(topics):
                 state.topic = topics[state.current_topic_index]["name"]
@@ -365,10 +390,12 @@ def next_question_node(state: InterviewState) -> InterviewState:
         elif topic and topic.get("asked", 0) + 1 >= topic.get("max_questions", 3):
             print(f"🛑 '{topic['name']}' 토픽 질문 {topic.get('asked', 0)+1}개 완료 → 다음 토픽으로 전환")
             state.current_topic_index += 1
+            state.bridge_done = False
             if state.current_topic_index < len(topics):
                 state.topic = topics[state.current_topic_index]["name"]
                 state.aspect = state.aspects[state.aspect_index % len(state.aspects)] if state.aspects else None
                 print(f"📌 [next_question_node] 토픽 전환 완료 → {state.topic}")
+                return next_question_node(state)
             else:
                 state.keepGoing = False
                 return state
@@ -379,19 +406,10 @@ def next_question_node(state: InterviewState) -> InterviewState:
         state.aspect_index = (aspect_idx + 1) % len(state.aspects)
 
         # --- ✅ save_question 호출 (항상 최신 state 값 저장) ---
-        save_question(
-            state.interviewId,
-            state.seq + 1,
-            state.question,
-            job=state.job,
-            level=state.level,
-            language=state.language,
-            topic=state.topic,
-            aspect=state.aspect
-        )
+
 
         # --- 종료 조건 ---
-        if state.count and len(state.questions) >= state.count:
+        if state.count and len(state.questions) > state.count:
             state.keepGoing = False
         elif not state.count and topics:
             if all(t["asked"] >= t.get("max_questions", 1) for t in topics):

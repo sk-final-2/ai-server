@@ -16,7 +16,7 @@ def _personality_prompt(resume_text: str, language: str) -> str:
         You are an interviewer.
         From the following resume, extract 3-5 personality-related topics.
         - Focus on attitude, teamwork, communication, motivation, and problem-solving approach
-        - Do not use TECHNICALnical keywords (e.g., data preprocessing, model architecture)
+        - Do not use TECHNICAL keywords (e.g., data preprocessing, model architecture)
         - Each item must include both "key" and "desc"
         - "desc" must be a concrete explanation and must never be empty
         - Output must be a JSON array only
@@ -25,7 +25,7 @@ def _personality_prompt(resume_text: str, language: str) -> str:
         """
 
 
-def _TECHNICALnical_prompt(resume_text: str, language: str) -> str:
+def _TECHNICAL_prompt(resume_text: str, language: str) -> str:
     if language == "KOREAN":
         return f"""
         너는 면접관이다.
@@ -40,7 +40,7 @@ def _TECHNICALnical_prompt(resume_text: str, language: str) -> str:
     else:  # ENGLISH
         return f"""
         You are an interviewer.
-        From the following resume, extract 3-5 TECHNICALnical topics.
+        From the following resume, extract 3-5 TECHNICAL topics.
         - Focus on skills, project experience, problem-solving process, achievements
         - Do not include personality-related keywords (e.g., values, attitude)
         - Each item must include both "key" and "desc"
@@ -63,7 +63,7 @@ def _mixed_prompt(resume_text: str, language: str) -> str:
     else:  # ENGLISH
         return f"""
         You are an interviewer.
-        From the following resume, extract 3-5 balanced topics (both personality and TECHNICALnical).
+        From the following resume, extract 3-5 balanced topics (both personality and TECHNICAL).
         - Each item must include both "key" and "desc"
         - Output must be a JSON array only
         Resume:
@@ -74,7 +74,7 @@ def _mixed_prompt(resume_text: str, language: str) -> str:
 def get_topic_prompt(interviewType: str, resume_text: str, language: str) -> str:
     if interviewType == "PERSONALITY":
         return _personality_prompt(resume_text, language)
-    elif interviewType == "TECHNICALNICAL":
-        return _TECHNICALnical_prompt(resume_text, language)
+    elif interviewType == "TECHNICAL":
+        return _TECHNICAL_prompt(resume_text, language)
     else:  # MIXED
         return _mixed_prompt(resume_text, language)

@@ -2,9 +2,7 @@ import subprocess
 import numpy as np
 from faster_whisper import WhisperModel
 
-# -----------------------------
-# 1) Whisper 모델 로드 (CPU 기준)
-# -----------------------------
+# ✅ CPU + medium 모델 (형 노트북 VRAM 6GB 기준)
 model = WhisperModel(
     "small",            # 모델 크기 (tiny / base / small / medium / large-v2 가능)
     device="cpu",       # GPU 쓸 경우 "cuda"
@@ -12,66 +10,56 @@ model = WhisperModel(
 )
 
 # -----------------------------
-# 2) 오디오 로더 (ffmpeg → numpy)
+# 오디오 로더 (ffmpeg → numpy)
 # -----------------------------
 def load_audio_as_numpy(input_path: str, sr: int = 16000) -> np.ndarray:
-    """
-    오디오/영상(mp3, mp4, wav 등)을 ffmpeg로 디코딩해서
-    float32 numpy array로 변환 (mono, 16kHz).
-    """
     command = [
         "ffmpeg",
         "-i", input_path,
-        "-f", "f32le",      # raw float32 PCM
-        "-ac", "1",         # mono
-        "-ar", str(sr),     # 16kHz
-        "pipe:1"            # stdout으로 출력
+        "-f", "f32le",  # raw float32 PCM
+        "-ac", "1",     # mono
+        "-ar", str(sr), # 16kHz
+        "pipe:1"
     ]
-
     proc = subprocess.run(
         command,
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,  # 로그 숨김
+        stderr=subprocess.DEVNULL,
         check=True
     )
-    audio = np.frombuffer(proc.stdout, np.float32)
-    return audio
+    return np.frombuffer(proc.stdout, np.float32)
 
 # -----------------------------
-# 3) STT 변환
+# STT 실행 (final 모드 고정)
 # -----------------------------
-def transcribe_audio(input_path: str):
-    """
-    입력 파일(mp3/mp4/wav 등)을 numpy array로 변환 후 STT 실행.
-    """
+def transcribe_audio(input_path: str, language: str = None):
     audio = load_audio_as_numpy(input_path)
+
+    # ✅ 항상 정확도 최우선 옵션
+    beam_size, patience = 10, 2
+
+    # 언어 매핑
+    LANG_MAP = {
+        "KOREAN": "ko",
+        "ENGLISH": "en"
+    }
+    lang_opt = LANG_MAP.get(language, None)  # None이면 auto detect
 
     segments, _ = model.transcribe(
         audio,
-        beam_size=5,
-        best_of=5,
-        patience=1,
+        beam_size=beam_size,
+        patience=patience,
+        language=lang_opt,  # ✅ 여기서 ISO 코드 사용
         vad_filter=True,
         temperature=0.0
     )
 
-    results = []
-    for seg in segments:
-        results.append({
-            "start": seg.start,
-            "end": seg.end,
-            "text": seg.text.strip()
-        })
-
+    results = [{"start": seg.start, "end": seg.end, "text": seg.text.strip()} for seg in segments]
     transcript = " ".join([r["text"] for r in results])
     return transcript, results
-
 # -----------------------------
-# 4) 외부 호출용 (통합 함수)
+# 외부 호출용 (API는 그대로)
 # -----------------------------
-def stt_from_path(input_path: str):
-    """
-    일반 오디오/비디오(mp3, mp4, wav 등) → STT 수행 후 결과 반환
-    """
-    transcript, segments = transcribe_audio(input_path)
+def stt_from_path(input_path: str, language: str = None):
+    transcript, segments = transcribe_audio(input_path, language=language)
     return transcript, segments

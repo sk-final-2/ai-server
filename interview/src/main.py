@@ -11,9 +11,8 @@ from interview.model import InterviewState
 from stt.transcriber import stt_from_path
 from interview.graph import graph_app
 from utils.chroma_setup import reset_chroma, get_collections, reset_interview  # ✅ 변경
-
+from fastapi.responses import JSONResponse
 # OCR import
-from fastapi import FastAPI, UploadFile, File
 from utils.extractor import (
     extract_text_from_pdf_pymupdf,
     extract_text_from_txt,
@@ -125,7 +124,7 @@ async def first_ask(payload: StateRequest, request: Request):
             aspect=aspect,
             feedback=None,
         )
-        
+        print(f"📝 [first-ask] last_question={last_question}")
         return {
             "interviewId": payload.interviewId,
             "interview_question": result.question
@@ -156,13 +155,12 @@ async def stt_ask(
         shutil.copyfileobj(file.file, f)
 
     # 3) STT 실행 (numpy 기반)
-    raw_transcript = stt_from_path(in_path)
-    corrected = correct_transcript(raw_transcript) or raw_transcript
-    if isinstance(corrected, dict):
-        corrected = corrected.get("raw","")
-    if not isinstance(corrected, str):
-        corrected = str(corrected)
+    raw_transcript, _ = stt_from_path(in_path, language=state.language)
 
+    # 4) 교정 실행 (언어별 교정 전략)
+    corrected_dict = correct_transcript(raw_transcript, language=state.language)
+    corrected = corrected_dict.get("corrected", raw_transcript) if isinstance(corrected_dict, dict) else raw_transcript
+    
     # 4) 답변 업데이트 (→ DB 저장은 answer_node에서 처리됨)
     state.last_answer = corrected
     if not hasattr(state, "answer"):
@@ -199,7 +197,7 @@ async def stt_ask(
         aspect=state.aspects[state.aspect_index] if hasattr(state, "aspects") else None,
         feedback=analysis
     )
-
+    print(f"💾 [save_turn 호출] seq={seq_out}, answer={corrected}")
     return {
         "interviewId": interviewId,
         "seq": seq_out,

@@ -101,9 +101,9 @@ def system_rule(state) -> str:
         if interviewType == "PERSONALITY":
             base += " Focus only on behavioral/personality interview questions (values, attitude, teamwork, communication)."
         elif interviewType == "TECHNICAL":
-            base += " Focus only on TECHNICALnical competencies, project experience, and problem-solving skills."
+            base += " Focus only on TECHNICAL competencies, project experience, and problem-solving skills."
         elif interviewType == "MIXED":
-            base += " Balance both behavioral/personality and TECHNICALnical questions. Do not repeat the same type consecutively."
+            base += " Balance both behavioral/personality and TECHNICAL questions. Do not repeat the same type consecutively."
 
         if career == "신입":
             base += " The candidate is entry-level, so focus on learning attitude, growth potential, and adaptability to new environments rather than prior work experience."
@@ -215,7 +215,7 @@ def normalize_text(llm, text: str, target: Literal["KOREAN", "ENGLISH"]) -> str:
 llm = ChatOpenAI(
     openai_api_key=os.getenv("OPENAI_API_KEY"),
     base_url="https://api.groq.com/openai/v1",
-    model="llama-3.3-70b-versatile",
+    model="llama-3.1-8b-instant",
     temperature=0.2
 )
 
@@ -236,7 +236,7 @@ def safe_parse_json_from_llm(content: str) -> dict:
         return {}
 
 type_rule_map = {
-    "TECHNICALNICAL": "- 기술적인 깊이를 평가할 수 있는 질문을 포함할 것",
+    "TECHNICAL": "- 기술적인 깊이를 평가할 수 있는 질문을 포함할 것",
     "PERSONALITY": "- 행동 및 가치관을 평가할 수 있는 질문을 포함할 것",
     "MIXED": "- 기술과 인성을 모두 평가할 수 있는 질문을 포함할 것"
 }

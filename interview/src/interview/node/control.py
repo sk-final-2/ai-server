@@ -7,21 +7,6 @@ import os
 DYN_MIN_SEQ = int(os.getenv("DYN_MIN_SEQ", "3"))     # 최소 N문항은 진행
 DYN_HARD_CAP = int(os.getenv("DYN_HARD_CAP", "20"))  # 동적 모드 최대 문항
 
-def _should_stop_dynamic(state: InterviewState) -> bool:
-    """count==0인 경우에만 호출: 충분히 평가 완료면 True."""
-    seq = int(getattr(state, "seq", 0) or 1)
-    
-    print(f'♥{seq}')
-    # 1) 최대치 넘으면 무조건 종료
-    if seq > DYN_HARD_CAP:
-        return True
-    
-    # 2) 최소치 넘으면 LLM한테 물어보기
-    if seq >= DYN_MIN_SEQ:
-        return True  # ⬅️ 임시로 True
-    # 3) 최소치 이전이면 무조건 계속 진행
-    return False
-
 def start_node(state):
     """
     자소서(resume) 유무에 따라 분기
@@ -72,31 +57,46 @@ def set_options_node(state: InterviewState) -> InterviewState:
     return state
 
 def bridge_node(state: InterviewState) -> InterviewState:
-    """🔀 MIXED 면접: 일정 시점 이후 type 전환"""
+    """🔀 MIXED 면접: 토픽 내에서 Aspect 전환"""
     if isinstance(state, dict):
         state = InterviewState(**state)
 
     if state.interviewType != "MIXED":
         return state
 
-    total = state.count or 10
-    idx = len(state.questions)
+    # 현재 토픽 확인
+    cur_topic = state.topics[state.current_topic_index] if state.topics else None
+    if not cur_topic:
+        return state
 
-    cutoff = total // 2  # 절반 이후에만 전환
-    # 이미 전환했으면 다시 안 바꾸게 플래그
+    asked = cur_topic.get("asked", 0)          # 지금까지 해당 토픽에서 질문한 수
+    max_q = cur_topic.get("max_questions", 3)  # 이 토픽에서 허용된 질문 수
+    cutoff = max_q // 2                        # 절반 시점 (예: 3이면 1~2번째에서 발동)
+
+    # 이미 전환했으면 재발동 금지
     if getattr(state, "bridge_done", False):
         return state
 
-    if idx >= cutoff:
+    # 브릿지 발동 조건: 현재 토픽에서 절반 이상 질문했을 때
+    if asked >= cutoff:
         if state.aspects == TECHNICAL_ASPECTS:
-            print("🔀 브릿지 발동: TECHNICAL → PERSONALITY 전환")
+            print("🔀 브릿지 발동(토픽 내): TECHNICAL → PERSONALITY")
             state.aspects = PERSONALITY_ASPECTS
         else:
-            print("🔀 브릿지 발동: PERSONALITY → TECHNICAL 전환")
+            print("🔀 브릿지 발동(토픽 내): PERSONALITY → TECHNICAL")
             state.aspects = TECHNICAL_ASPECTS
+
         state.aspect_index = 0
-        state.bridge_switched = True  # ✅ 프롬프트에서 체크
-        state.bridge_done = True      # ✅ 다시는 안 바꾸게
+        state.bridge_switched = True
+        state.bridge_done = True   # ✅ 이 토픽에서는 한 번만 발동
+    # ✅ 현재 질문 유형 로그 출력
+    if state.aspects == TECHNICAL_ASPECTS:
+        print("🧭 현재 질문 유형: TECHNICAL")
+    elif state.aspects == PERSONALITY_ASPECTS:
+        print("🧭 현재 질문 유형: PERSONALITY")
+    else:
+        print(f"🧭 현재 질문 유형: UNKNOWN ({state.aspects})")
+        
     return state
 
 def check_keepGoing(state: InterviewState) -> str:

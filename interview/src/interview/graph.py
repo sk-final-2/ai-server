@@ -15,7 +15,8 @@ def check_count_mode(state: InterviewState) -> Literal["dynamic", "fixed"]:
     return "dynamic" if getattr(state, "count", 0) == 0 else "fixed"
 
 def check_bridge(state: InterviewState) -> str:
-    return "bridge" if state.interviewType == "MIXED" else "next_question"
+    print(f"[check_bridge] interviewType={state.interviewType}, count={state.count}, q_len={len(state.questions)}")
+    return "bridge" if str(state.interviewType).upper() == "MIXED" else "next_question"
 
 def check_keepGoing(state: InterviewState) -> Literal["stop", "continue"]:
     """keepGoing 플래그로 종료/계속 분기"""
@@ -83,9 +84,8 @@ def create_graph():
     builder.add_conditional_edges(
         "keepGoing",
         lambda state: (
-            "stop"
-            if check_keepGoing(state) == "stop"
-            else check_bridge(state)
+            "bridge" if state.interviewType == "MIXED" and not getattr(state, "bridge_done", False)
+            else ("stop" if check_keepGoing(state) == "stop" else "next_question")
         ),
         {
             "stop": "__end__",

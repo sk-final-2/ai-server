@@ -16,7 +16,6 @@ llvmlite = ">=0.44.0,<0.45.0"
 python-multipart = ">=0.0.20,<0.0.21"
 ffmpeg-python = ">=0.2.0,<0.3.0"
 faster-whisper = ">=1.1.1,<2.0.0"
-sentence-transformers = "^5.1.0"
 safetensors = "^0.6.2"
 transformers = "^4.55.2"
 pydot = "^4.0.1"
@@ -29,6 +28,9 @@ pypdf2 = ">=3.0.1,<4.0.0"
 python-docx = ">=1.2.0,<2.0.0"
 pymupdf = ">=1.26.3,<2.0.0"
 regex = ">=2025.7.34,<2026.0.0"
+torch = "^2.8.0"
+sentence-transformers = "^5.1.0"
+torchvision = "0.23.0"
 
 [build-system]
 requires = ["poetry-core>=1.9.0"]

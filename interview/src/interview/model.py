@@ -37,6 +37,7 @@ class InterviewState(BaseModel):
     last_label: Optional[str] = None# ✅ 브릿지 전환 완료 플래그
     topic: Optional[str] = None
     aspect: Optional[str] = None
+    subtype: Optional[str] = None
     class MyModel(BaseModel):
         # ✅ 외부에서 dict → 모델 생성할 때, alias 없이도 작동하게 허용
         model_config = {
