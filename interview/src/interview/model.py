@@ -38,6 +38,13 @@ class InterviewState(BaseModel):
     topic: Optional[str] = None
     aspect: Optional[str] = None
     subtype: Optional[str] = None
+    qtype: Literal["TECHNICAL", "PERSONALITY"] = "TECHNICAL"
+    subtype: Literal["METHOD", "TOOL_STANDARD", "IMPACT", "STAKEHOLDER", "RISK_ETHICS"] = "METHOD"
+    bridge_note: str = ""
+    bridge_done: bool = False
+    bridge_switched: bool = False
+    last_bridge_turn: int = 0
+    subtype_history: List[str] = Field(default_factory=list)
     class MyModel(BaseModel):
         # ✅ 외부에서 dict → 모델 생성할 때, alias 없이도 작동하게 허용
         model_config = {

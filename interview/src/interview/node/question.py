@@ -282,18 +282,23 @@ def next_question_node(state: InterviewState) -> InterviewState:
             topic = topics[state.current_topic_index]
         print(f"🧭 INTERVIEW TYPE: {state.interviewType}")
         print(f"🧭 SELECTED ASPECT: {state.aspect}")
-        current_subtype = getattr(state, "subtype", None)
+        current_subtype = (getattr(state, "subtype", None) or "").strip()
+        if not current_subtype:
+            from utils.qa_classify import heuristic_scores
+            h = heuristic_scores(f"{prev_q} {prev_a}")
+            current_subtype = h["subtype_h"] or "METHOD"
         # --- system 프롬프트 구성 ---
         summary_text = " ".join(item.desc for item in state.resume_summary) if state.resume_summary else ""
         system_prompt = (
             f"너는 인공지능 면접관이다.\n"
-            f"지원자가 제출한 자기소개서(선택적)와 직전 답변을 참고하여 "
-            f"{lang}으로만 다음 질문을 만들어라.\n\n"
+            f"지원자의 직전 답변과 자기소개서(선택)를 참고하여 {lang}으로 다음 질문을 만들어라.\n\n"
+            "선호(강제 아님):\n"
+            "- 직전 답변의 요지에서 자연스럽게 이어질 수 있다면 **후속 질문**을 우선 고려한다.\n"
+            "- 이어지지 않는다면, **현재 토픽 내에서 다른 측면으로 전환**하여 새 질문을 만든다.\n\n"
             "조건:\n"
-            "- 구체적이고 맥락 있는 질문\n"
-            "- 이전 질문과 유사하지 않음\n"
-            "- 직무 관련 기술/경험 또는 인성 관련 질문 위주\n"
-            "- '절대 금지: '이제 ~에 대해 묻겠습니다' / '다음으로 ~에 대해' / '제가 묻고 싶은 것은' 같은 메타 표현.\n"
+            "- 구체적이고 맥락 있는 질문(1문장, 최대 2문장)\n"
+            "- 바로 직전 질문과는 포인트가 겹치지 않음(중복 금지)\n"
+            "- 메타 표현(예: '이제 ~에 대해 묻겠습니다') 금지\n"
         )
         if topic:
             system_prompt += (
@@ -303,63 +308,101 @@ def next_question_node(state: InterviewState) -> InterviewState:
                 "⚠️ 주제와 요약은 참고용으로만 사용하고, 질문 문장에 직접 노출하지 말 것."
             )
 
-        # --- 질문 생성 ---
-        question_prompt = ChatPromptTemplate.from_messages([
-            ("system", system_rule(state)),   # ✅ 언어 규칙
-            ("system", system_prompt),          # ✅ 질문 규칙
-            ("human", "직무: {job}\n직전 질문: {prev_q}\n직전 답변: {prev_a}")
+        from langchain_core.prompts import ChatPromptTemplate
+        from interview.config import llm
+
+        # ➊ FOLLOWUP 후보(맥락 이어질 때)
+        followup_prompt = ChatPromptTemplate.from_messages([
+            ("system", system_rule(state)),
+            ("system", system_prompt),
+            ("human",
+             "직무: {job}\n"
+             "서브타입 힌트: {subtype}\n"
+             "직전 질문: {prev_q}\n"
+             "직전 답변: {prev_a}\n\n"
+             "요청: 가능한 경우, 위 답변의 요지를 더 깊이 파고드는 **후속 질문** 1개를 생성하라.")
         ])
-        chain = question_prompt | llm
-        res = chain.invoke({
-            "job": job,
-            "prev_q": prev_q,
-            "prev_a": prev_a,
-        })
-        final_q = None
-        for attempt in range(1, 6):
-            res = chain.invoke({"job": job, "prev_q": prev_q, "prev_a": prev_a})
-            candidate_q = (res.content or "").strip()
-            candidate_q = clean_question(candidate_q)
 
-            print(f"🔄 [재시도 {attempt}] 후보 질문: {candidate_q}")
-            from utils.chroma_qa import get_similar_question, save_question
-            save_question(
-            state.interviewId,
-            state.seq + 1,
-            candidate_q,
-            job=state.job,
-            level=state.level,
-            language=state.language,
-            topic=topic["name"] if topic else None,
-            aspect=aspect 
-            )              
-            
+        # ➋ LATERAL 후보(같은 토픽 내 측면 전환)
+        lateral_prompt = ChatPromptTemplate.from_messages([
+            ("system", system_rule(state)),
+            ("system", system_prompt),
+            ("human",
+             "직무: {job}\n"
+             "서브타입 힌트: {subtype}\n"
+             "직전 질문: {prev_q}\n"
+             "직전 답변: {prev_a}\n\n"
+             "요청: 위 답변에서 자연스럽지 않다면, **현재 토픽(commitment 등) 내에서 다른 측면(method/impact/stakeholder/risk/standard 중 하나)**을 선택해 새로운 질문 1개를 생성하라.")
+        ])
+
+        def gen_candidate(prompt):
+            res = (prompt | llm).invoke({
+                "job": job,
+                "prev_q": prev_q,
+                "prev_a": prev_a,
+                "subtype": current_subtype,
+            })
+            text = (getattr(res, "content", "") or "").strip()
+            return clean_question(text)
+
+        candidates = []
+        # 시도 횟수는 가볍게 1~2회로도 충분
+        for _ in range(2):
+            candidates.append(("FOLLOWUP", gen_candidate(followup_prompt)))
+            candidates.append(("LATERAL",  gen_candidate(lateral_prompt)))
+
+        # 중복/유사 제거 + 스코어링(소프트)
+        from utils.chroma_qa import get_similar_question
+        best_q, best_kind, best_score = None, None, -1.0
+
+        for kind, cand in candidates:
+            if not cand or len(cand) < 5:
+                continue
+
+            # 직전 질문/코퍼스와의 중복 방지
             check = get_similar_question(
-                state.interviewId, candidate_q, k=3, min_similarity=0.75, verify_all=True, subtype=current_subtype, job=state.job, 
+                state.interviewId, cand, k=3, min_similarity=0.75,
+                verify_all=True, subtype=current_subtype, job=state.job
             )
-            redundant = False
-            if prev_q:
-                embed_sim = max(
-                    (h.get("sim", 0.0) for h in check.get("hits", []) if h.get("doc")), default=0.0
-                )
-                redundant = is_redundant(prev_q, candidate_q, embed_sim, cos_thr=0.95, jac_thr=0.6, ngram_thr=0.5)
+            if check.get("similar"):
+                continue
 
-            if not (check.get("similar") or redundant):
-                final_q = candidate_q
-                print(f"✅ [채택됨 - {attempt}번째 시도] {final_q}")
-                break
-            else:
-                print(f"❌ [거부됨 - {attempt}번째 시도] 유사하거나 중복된 질문")
+            # 간단 스코어: (a) 적당한 연계성 + (b) 직전 질문과의 중복 낮음
+            # 연계성: prev_a와의 토큰/키워드 겹침 정도(너무 높아도 반복 경향 → 상한)
+            from utils.question_filter import lexical_overlap_score, cosine_similarity_score
+            link = 0.6*lexical_overlap_score(prev_a, cand) + 0.4*cosine_similarity_score(prev_a, cand)
+            # 중복 회피: prev_q와의 유사도는 낮을수록 가산
+            dup_q = cosine_similarity_score(prev_q, cand)
+            score = (min(link, 0.8)) - (0.5*max(0.0, dup_q - 0.6))  # 소프트한 편향
 
+            # FOLLOWUP에 살짝 가중치(+0.05) → “선호”만 주고 “강제”는 아님
+            if kind == "FOLLOWUP":
+                score += 0.05
+
+            if score > best_score:
+                best_q, best_kind, best_score = cand, kind, score
+
+        final_q = best_q
         if not final_q:
+            # 폴백: 현재 aspect 기반 기본 질문(강제 아님)
             fb_list = FALLBACK_POOL.get(state.aspects[state.aspect_index], [])
-            final_q = fb_list[0] if fb_list else f"{job} 관련 다른 경험을 말씀해 주세요."
-            print(f"⚠️ [Fallback 적용] 최종 질문: {final_q}")
+            final_q = fb_list[0] if fb_list else (
+                "방금 설명하신 내용에서 **가장 효과적이었던 방법 한 가지**를 예로 들어 구체적으로 설명해 주시겠어요?"
+            )
+            best_kind = "FALLBACK"
 
-        # 상태 업데이트
+        print(f"✅ [선정] kind={best_kind} score={best_score:.3f} q={final_q}")
+
+        # 상태 업데이트(메모리)
         state.question = final_q
         state.questions.append(final_q)
-        
+
+        # 저장 직전 보정들(빈 subtype 방지, topic 일관화)
+        state.subtype = (getattr(state, "subtype", None) or current_subtype or "METHOD")
+        final_topic_name = topic["name"] if topic else (state.topic or None)
+
+        # ⚠️ 채택 후 '한 번만' 저장(후보 단계 저장 금지)
+        from utils.chroma_qa import save_question
         save_question(
             state.interviewId,
             state.seq + 1,
@@ -367,13 +410,15 @@ def next_question_node(state: InterviewState) -> InterviewState:
             job=state.job,
             level=state.level,
             language=state.language,
-            topic=state.topic,
-            aspect=state.aspect
+            topic=final_topic_name,
+            aspect=aspect,
+            # subtype 필드가 스키마에 있으면 여기에 함께 저장 가능:
+            # subtype=state.subtype,
         )
-        
-        # --- ✅ terminate 기반 토픽 전환 ---
+
+        # (이하 terminate / max_questions 전환 로직, 카운터 증가는 기존대로)
         if getattr(state, "last_label", None) == "terminate":
-            print(f"🛑 terminate 신호 감지 → '{topics[state.current_topic_index]['name']}' 종료, 다음 토픽으로 이동")
+            print(f"🛑 terminate → '{topics[state.current_topic_index]['name']}' 종료, 다음 토픽")
             state.topics[state.current_topic_index]["asked"] = topics[state.current_topic_index].get("max_questions", 1)
             state.current_topic_index += 1
             state.bridge_done = False
@@ -386,9 +431,8 @@ def next_question_node(state: InterviewState) -> InterviewState:
                 state.keepGoing = False
                 return state
 
-        # --- ✅ max_questions 기반 토픽 전환 ---
         elif topic and topic.get("asked", 0) + 1 >= topic.get("max_questions", 3):
-            print(f"🛑 '{topic['name']}' 토픽 질문 {topic.get('asked', 0)+1}개 완료 → 다음 토픽으로 전환")
+            print(f"🛑 '{topic['name']}' 토픽 질문 {topic.get('asked', 0)+1}개 완료 → 다음 토픽")
             state.current_topic_index += 1
             state.bridge_done = False
             if state.current_topic_index < len(topics):
@@ -400,15 +444,11 @@ def next_question_node(state: InterviewState) -> InterviewState:
                 state.keepGoing = False
                 return state
 
-        # --- 질문 카운트 증가 ---
         if topic:
             topic["asked"] = topic.get("asked", 0) + 1
         state.aspect_index = (aspect_idx + 1) % len(state.aspects)
 
-        # --- ✅ save_question 호출 (항상 최신 state 값 저장) ---
-
-
-        # --- 종료 조건 ---
+        # 종료 조건은 기존 그대로
         if state.count and len(state.questions) > state.count:
             state.keepGoing = False
         elif not state.count and topics:

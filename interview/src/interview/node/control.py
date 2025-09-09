@@ -3,7 +3,10 @@ from typing import Union
 from interview.predict_keepGoing import keepGoing
 from utils.constants import PERSONALITY_ASPECTS, TECHNICAL_ASPECTS, MIXED_ASPECTS
 import os
-
+from utils.qa_classify import (
+    classify_turn_with_llm, heuristic_scores,
+    can_bridge, decide_next_type
+)
 DYN_MIN_SEQ = int(os.getenv("DYN_MIN_SEQ", "3"))     # 최소 N문항은 진행
 DYN_HARD_CAP = int(os.getenv("DYN_HARD_CAP", "20"))  # 동적 모드 최대 문항
 
@@ -56,47 +59,74 @@ def set_options_node(state: InterviewState) -> InterviewState:
     print(f"✅ 최종 language: {state.language}, level: {state.level}, count: {state.count}, interviewType: {state.interviewType}")
     return state
 
-def bridge_node(state: InterviewState) -> InterviewState:
-    """🔀 MIXED 면접: 토픽 내에서 Aspect 전환"""
+def bridge_node(state: "InterviewState") -> "InterviewState":
     if isinstance(state, dict):
         state = InterviewState(**state)
-
-    if state.interviewType != "MIXED":
+    if getattr(state, "interviewType", "") != "MIXED":
         return state
 
     # 현재 토픽 확인
-    cur_topic = state.topics[state.current_topic_index] if state.topics else None
+    cur_topic = None
+    if getattr(state, "topics", None) and 0 <= getattr(state, "current_topic_index", 0) < len(state.topics):
+        cur_topic = state.topics[state.current_topic_index]
     if not cur_topic:
         return state
 
-    asked = cur_topic.get("asked", 0)          # 지금까지 해당 토픽에서 질문한 수
-    max_q = cur_topic.get("max_questions", 3)  # 이 토픽에서 허용된 질문 수
-    cutoff = max_q // 2                        # 절반 시점 (예: 3이면 1~2번째에서 발동)
+    asked = int(cur_topic.get("asked", 0))
+    max_q = int(cur_topic.get("max_questions", 3))
 
-    # 이미 전환했으면 재발동 금지
-    if getattr(state, "bridge_done", False):
+    ok, reason = can_bridge(state, asked, max_q)
+    if not ok:
+        print(f"⏸️ bridge skip: {reason}")
         return state
 
-    # 브릿지 발동 조건: 현재 토픽에서 절반 이상 질문했을 때
-    if asked >= cutoff:
-        if state.aspects == TECHNICAL_ASPECTS:
-            print("🔀 브릿지 발동(토픽 내): TECHNICAL → PERSONALITY")
-            state.aspects = PERSONALITY_ASPECTS
-        else:
-            print("🔀 브릿지 발동(토픽 내): PERSONALITY → TECHNICAL")
-            state.aspects = TECHNICAL_ASPECTS
+    last_q = getattr(state, "last_question", "") or getattr(state, "question", "")
+    last_a = getattr(state, "last_answer", "")
+    topic  = getattr(state, "topic", "")
 
-        state.aspect_index = 0
-        state.bridge_switched = True
-        state.bridge_done = True   # ✅ 이 토픽에서는 한 번만 발동
-    # ✅ 현재 질문 유형 로그 출력
-    if state.aspects == TECHNICAL_ASPECTS:
-        print("🧭 현재 질문 유형: TECHNICAL")
-    elif state.aspects == PERSONALITY_ASPECTS:
-        print("🧭 현재 질문 유형: PERSONALITY")
-    else:
-        print(f"🧭 현재 질문 유형: UNKNOWN ({state.aspects})")
-        
+    # prev_type 정규화 (혼입 방지)
+    cur_t_raw = getattr(state, "qtype", "") or "PERSONALITY"
+    _map = {"TECH": "TECHNICAL", "PERSON": "PERSONALITY", "": "PERSONALITY", None: "PERSONALITY"}
+    cur_t = _map.get(cur_t_raw, cur_t_raw)
+
+    recent_text = (
+        " ".join([a.get("text","") if isinstance(a, dict) else str(a)
+                  for a in getattr(state, "answers", [])[-2:]])
+        if getattr(state, "answers", None) else ""
+    )
+
+    # 1) LLM 분류(KO/EN 자동 선택)
+    from interview.config import llm
+    llm_res = classify_turn_with_llm(llm, getattr(state, "language", ""), last_q, last_a, topic, cur_t, recent_text)
+
+    # 2) 휴리스틱
+    h_res = heuristic_scores(f"{last_q} {last_a}")
+
+    # 3) 결정 (TECHNICAL / PERSONALITY 라벨 사용)
+    decision = decide_next_type(getattr(state, "language", ""), cur_t, llm_res, h_res)
+    print(f"🔀 decision={decision}")
+
+    next_type = decision["next_type"]
+    switched = (next_type != cur_t)
+
+    # 상태 갱신
+    state.qtype = next_type
+    state.subtype = decision.get("subtype") or (getattr(state, "subtype", "") or "METHOD")
+    state.bridge_note = ""  # 요청대로 note는 사용하지 않음
+    state.bridge_switched = switched
+
+    # 전환 '성공'시에만 잠금/타임스탬프
+    if switched:
+        state.bridge_done = True
+        state.last_bridge_turn = getattr(state, "seq", 0) or 0
+
+    # 기본값 보정(후속 노드 안전)
+    state.qtype = state.qtype or "PERSONALITY"
+    state.subtype = state.subtype or "METHOD"
+    state.bridge_note = ""  # 항상 빈 문자열 유지
+
+    # 로깅
+    print(f"🧭 현재 질문 유형: {state.qtype} / subtype={state.subtype}")
     return state
 
 def check_keepGoing(state: InterviewState) -> str:

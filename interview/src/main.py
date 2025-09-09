@@ -49,6 +49,10 @@ def _temp_path(name: str) -> str:
 # ✅ 세션 상태 저장 (메모리)
 session_state = {}
 
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
 # ✅ 첫 질문 요청용 Request 모델
 class StateRequest(BaseModel):
     ocrText: str                               # OCR 결과 텍스트

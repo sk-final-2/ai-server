@@ -1,5 +1,9 @@
 import re
 from typing import List, Tuple
+from collections import Counter
+from typing import List
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 _STOPWORDS = {"은","는","이","가","을","를","에","에서","으로","와","과","도","만","하며","고","또는","및","등","의","뭘","뭔","무엇","무엇이","무엇을","무엇입니까","무엇이었나요"}
 
@@ -39,3 +43,29 @@ def is_redundant(prev_q: str, cand_q: str, embed_sim: float,
     if tri >= ngram_thr:
         return True
     return False
+
+def _tokenize(text: str) -> List[str]:
+    """간단한 토큰화: 알파벳/숫자 기준 단어 단위 분리"""
+    return re.findall(r"\w+", text.lower())
+
+def lexical_overlap_score(a: str, b: str) -> float:
+    """
+    두 문장 간의 단순 단어 중복 비율 (Jaccard 유사도).
+    값 범위: 0.0 ~ 1.0
+    """
+    ta, tb = set(_tokenize(a)), set(_tokenize(b))
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+def cosine_similarity_score(a: str, b: str) -> float:
+    """
+    두 문장 간의 코사인 유사도(TF-IDF 기반).
+    값 범위: 0.0 ~ 1.0
+    """
+    if not a or not b:
+        return 0.0
+    vec = TfidfVectorizer().fit([a, b])
+    mat = vec.transform([a, b])
+    sim = cosine_similarity(mat[0], mat[1])[0][0]
+    return float(sim)
