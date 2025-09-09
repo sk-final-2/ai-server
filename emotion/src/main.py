@@ -42,6 +42,10 @@ def sec_to_hhmmss(sec: int) -> str:
     s = sec % 60
     return f"{m:02d}:{s:02d}"
 
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
 @app.post("/analyze")
 async def analyze_emotion(
     file: UploadFile = File(...),

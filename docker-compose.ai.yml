@@ -29,5 +29,5 @@ services:
       
 networks:
   backend-net:
-    external: false
+    external: true
     name: recruitai_backend-net  # 이미 존재하는 네트워크에 붙는다는 의미

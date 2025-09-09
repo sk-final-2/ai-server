@@ -244,6 +244,9 @@ def run_all_analyses(video_path):
         "timestamp":  timestamps
     }, None
 
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
 
 @app.post("/tracking")
 async def analyze_tracking(
