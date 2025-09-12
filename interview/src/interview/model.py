@@ -45,6 +45,7 @@ class InterviewState(BaseModel):
     bridge_switched: bool = False
     last_bridge_turn: int = 0
     subtype_history: List[str] = Field(default_factory=list)
+    just_switched_topic: bool = False   # ✅ 토픽 전환 직후 1턴 플래그 9  
     class MyModel(BaseModel):
         # ✅ 외부에서 dict → 모델 생성할 때, alias 없이도 작동하게 허용
         model_config = {
