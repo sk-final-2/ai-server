@@ -2,7 +2,7 @@ name: AI Deploy (dir-aware)
 
 on:
   push:
-    branches: [ main, dev ]   # 전부 허용하고 싶으면 '**' 로 바꿔도 됨
+    branches: [ main, dev ]   # 원하면 브랜치 더 추가 가능
 
 jobs:
   changes:
@@ -12,6 +12,7 @@ jobs:
       matrix: ${{ steps.mk.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -19,17 +20,20 @@ jobs:
             emotion:   "emotion/**"
             interview: "interview/**"
             tracking:  "tracking/**"
+
       - id: mk
+        shell: bash
         run: |
           services=()
           [[ "${{ steps.filter.outputs.emotion }}"   == "true" ]] && services+=("emotion")
           [[ "${{ steps.filter.outputs.interview }}" == "true" ]] && services+=("interview")
           [[ "${{ steps.filter.outputs.tracking }}"  == "true" ]] && services+=("tracking")
+
           if [ ${#services[@]} -eq 0 ]; then
-            echo 'matrix={"service":[]}' >> $GITHUB_OUTPUT
+            echo 'matrix={"service":[]}' >> "$GITHUB_OUTPUT"
           else
-            printf '%s\n' "${services[@]}" | jq -R . | jq -s '{service: .}' > m.json
-            echo "matrix=$(cat m.json)" >> $GITHUB_OUTPUT
+            json=$(printf '%s\n' "${services[@]}" | jq -R . | jq -c -s '{service: .}')
+            echo "matrix=$json" >> "$GITHUB_OUTPUT"
           fi
 
   build-deploy:
