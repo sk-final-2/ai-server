@@ -1,0 +1,105 @@
+name: AI Deploy (dir-aware)
+
+on:
+  push:
+    branches: [ main, dev ]   # 전부 허용하고 싶으면 '**' 로 바꿔도 됨
+
+jobs:
+  changes:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.mk.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            emotion:   "emotion/**"
+            interview: "interview/**"
+            tracking:  "tracking/**"
+      - id: mk
+        run: |
+          services=()
+          [[ "${{ steps.filter.outputs.emotion }}"   == "true" ]] && services+=("emotion")
+          [[ "${{ steps.filter.outputs.interview }}" == "true" ]] && services+=("interview")
+          [[ "${{ steps.filter.outputs.tracking }}"  == "true" ]] && services+=("tracking")
+          if [ ${#services[@]} -eq 0 ]; then
+            echo 'matrix={"service":[]}' >> $GITHUB_OUTPUT
+          else
+            printf '%s\n' "${services[@]}" | jq -R . | jq -s '{service: .}' > m.json
+            echo "matrix=$(cat m.json)" >> $GITHUB_OUTPUT
+          fi
+
+  build-deploy:
+    name: Build & Deploy (${{ matrix.service }})
+    needs: changes
+    if: ${{ fromJson(needs.changes.outputs.matrix).service != null && fromJson(needs.changes.outputs.matrix).service[0] != null }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.changes.outputs.matrix) }}
+    permissions:
+      id-token: write
+      contents: read
+    concurrency:
+      group: ai-${{ matrix.service }}-${{ github.ref_name }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Resolve meta by service
+        id: meta
+        run: |
+          case "${{ matrix.service }}" in
+            emotion)
+              echo "REPOSITORY=${{ secrets.ECR_REPOSITORY_AI_EMOTION }}"   >> $GITHUB_OUTPUT
+              echo "SERVICE=${{ secrets.ECS_SERVICE_AI_EMOTION }}"         >> $GITHUB_OUTPUT
+              echo "CONTEXT=emotion"                                       >> $GITHUB_OUTPUT
+              ;;
+            interview)
+              echo "REPOSITORY=${{ secrets.ECR_REPOSITORY_AI_INTERVIEW }}" >> $GITHUB_OUTPUT
+              echo "SERVICE=${{ secrets.ECS_SERVICE_AI_INTERVIEW }}"       >> $GITHUB_OUTPUT
+              echo "CONTEXT=interview"                                     >> $GITHUB_OUTPUT
+              ;;
+            tracking)
+              echo "REPOSITORY=${{ secrets.ECR_REPOSITORY_AI_TRACKING }}"  >> $GITHUB_OUTPUT
+              echo "SERVICE=${{ secrets.ECS_SERVICE_AI_TRACKING }}"        >> $GITHUB_OUTPUT
+              echo "CONTEXT=tracking"                                      >> $GITHUB_OUTPUT
+              ;;
+          esac
+          echo "REGISTRY=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
+
+      - name: Build & Push :latest
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ steps.meta.outputs.CONTEXT }}
+          push: true
+          tags: ${{ steps.meta.outputs.REGISTRY }}/${{ steps.meta.outputs.REPOSITORY }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Force rolling update
+        run: |
+          aws ecs update-service \
+            --cluster "${{ secrets.ECS_CLUSTER }}" \
+            --service "${{ steps.meta.outputs.SERVICE }}" \
+            --force-new-deployment \
+            --region "${{ secrets.AWS_REGION }}"
+          aws ecs wait services-stable \
+            --cluster "${{ secrets.ECS_CLUSTER }}" \
+            --services "${{ steps.meta.outputs.SERVICE }}" \
+            --region "${{ secrets.AWS_REGION }}"
