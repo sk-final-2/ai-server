@@ -14,7 +14,7 @@ def answer_node(state: InterviewState) -> Union[InterviewState, None]:
 
     print("✍️ [answer_node] 사용자 답변 대기 중...")
     print(f"❓ 현재 질문: {state_obj.question[-1] if state_obj.question else 'None'}")
-    print(f"📦 [answer_node 리턴 타입]: {type(state_obj)} / 값: {state_obj}")
+    #print(f"📦 [answer_node 리턴 타입]: {type(state_obj)} / 값: {state_obj}")
 
     if not state_obj.last_answer:
         print("🛑 [answer_node] 답변이 없어 FSM 종료 → 외부 입력 대기")

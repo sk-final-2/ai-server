@@ -1,6 +1,5 @@
-import re
+import re, random
 from typing import List, Tuple
-from collections import Counter
 from typing import List
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -33,16 +32,6 @@ def ngram_overlap(a: List[str], b: List[str], n=3) -> float:
         return 0.0
     return len(na & nb) / max(1, len(na | nb))
 
-def is_redundant(prev_q: str, cand_q: str, embed_sim: float,
-                 cos_thr: float = 0.95, jac_thr: float = 0.60, ngram_thr: float = 0.50) -> bool:
-    kw_prev, kw_cand = keywords(prev_q), keywords(cand_q)
-    jac = jaccard(kw_prev, kw_cand)
-    tri = ngram_overlap(kw_prev, kw_cand, n=3)
-    if embed_sim >= cos_thr and jac >= jac_thr:
-        return True
-    if tri >= ngram_thr:
-        return True
-    return False
 
 def _tokenize(text: str) -> List[str]:
     """간단한 토큰화: 알파벳/숫자 기준 단어 단위 분리"""
@@ -69,3 +58,15 @@ def cosine_similarity_score(a: str, b: str) -> float:
     mat = vec.transform([a, b])
     sim = cosine_similarity(mat[0], mat[1])[0][0]
     return float(sim)
+
+def init_topics_for_session(all_topics, k_min=3, k_max=5):
+    """세션 시작 시 랜덤으로 3~5개 토픽만 선택"""
+    if not all_topics:
+        return []
+    k = random.randint(k_min, min(k_max, len(all_topics)))
+    selected = random.sample(all_topics, k)
+    # 초기화
+    for t in selected:
+        t["asked"] = 0
+        t["max_questions"] = 3  # 기본 3개씩 물어보기
+    return selected
