@@ -31,7 +31,7 @@ def create_graph():
     builder.add_node("default_topic", setup_default_topics_node)
     builder.add_node("first_question", first_question_node)
     builder.add_node("answer", answer_node)
-    builder.add_node("analyze", analyze_node)
+    builder.add_node("router", analyze_node)
     builder.add_node("keepGoing", keepGoing_node)
     builder.add_node("next_question", next_question_node)
     builder.add_node("start_node", start_node)
@@ -63,11 +63,11 @@ def create_graph():
     )
 
     # answer → analyze
-    builder.add_edge("answer", "analyze")
+    builder.add_edge("answer", "router")
 
     # analyze → dynamic | bridge | next_question
     builder.add_conditional_edges(
-        "analyze",
+        "router",
         lambda state: (
             "keepGoing"
             if check_count_mode(state) == "dynamic"
